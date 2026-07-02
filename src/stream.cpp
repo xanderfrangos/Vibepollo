@@ -1835,9 +1835,11 @@ namespace stream {
     auto video_epoch = std::chrono::steady_clock::now();
 
     // Video traffic is sent on this thread. The send pacer (pacing_max_bitrate_kbps)
-    // relies on this thread waking on its sleep deadlines; if the OS preempts us for
-    // the next scheduler quantum the per-frame burst pattern returns, which is exactly
-    // what the pacer is meant to prevent. Run at critical, above generic background work.
+    // relies on this thread waking on its millisecond sleep deadlines; losing the
+    // scheduler slot to lower-priority work reintroduces the per-frame burst pattern
+    // the pacer exists to prevent. Note critical maps to THREAD_PRIORITY_HIGHEST on
+    // Windows (nice -15 on Linux) — the top of the normal dynamic range, not a
+    // realtime class — the same level video::capture and controlBroadcast already use.
     platf::set_thread_name("stream::videoBroadcast");
     platf::adjust_thread_priority(platf::thread_priority_e::critical);
 
@@ -2000,6 +2002,21 @@ namespace stream {
         size_t pacing_bps;
         if (config::stream.pacing_max_bitrate_kbps > 0) {
           pacing_bps = (size_t) config::stream.pacing_max_bitrate_kbps * 1000ull;
+
+          // Never pace below the session's negotiated bitrate: a cap under the encoder's
+          // output rate makes the sender permanently slower than the encoder, so the packet
+          // queue (and stream latency) grows without bound. Clamp to ~110% of the stream
+          // bitrate, re-evaluated per frame since the ABR endpoint can raise it mid-session.
+          size_t session_floor_bps = (size_t) session->config.monitor.bitrate * 1000ull * 110 / 100;
+          if (pacing_bps < session_floor_bps) {
+            static std::atomic_flag pacing_clamp_warned;
+            if (!pacing_clamp_warned.test_and_set()) {
+              BOOST_LOG(warning) << "pacing_max_bitrate_kbps ("sv << config::stream.pacing_max_bitrate_kbps
+                                 << " kbps) is below the negotiated stream bitrate ("sv << session->config.monitor.bitrate
+                                 << " kbps); clamping the pacer to 110% of the stream bitrate"sv;
+            }
+            pacing_bps = session_floor_bps;
+          }
         } else {
           pacing_bps = (size_t) (std::giga::num * 80 / 100);  // 80% of 1 Gbps
         }

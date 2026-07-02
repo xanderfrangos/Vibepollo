@@ -3430,10 +3430,10 @@ namespace video {
       }
     });
 
-    // Encoding and capture takes place on this thread. Late frames here turn into
+    // Encoding and capture take place on this thread. Late frames here turn into
     // late hand-offs to the broadcast thread, producing the burst-then-idle pattern
-    // the send pacer is meant to absorb. Run at critical so neither encode nor
-    // capture lose timing slices to background work.
+    // the send pacer is meant to absorb. Runs at critical (THREAD_PRIORITY_HIGHEST /
+    // nice -15, not a realtime class) — the same level the async capture thread uses.
     platf::set_thread_name("video::capture_sync");
     platf::adjust_thread_priority(platf::thread_priority_e::critical);
 
@@ -3475,8 +3475,9 @@ namespace video {
     auto hdr_event = mail->event<hdr_info_t>(mail::hdr);
 
     // Encoding takes place on this thread (async-capture mode; capture lives in
-    // capture_thread_async at critical already). Upgrade encode to match so neither
-    // half of the pipeline stalls the other on a scheduler quantum.
+    // capture_thread_async at critical already). Match it so neither half of the
+    // pipeline waits on the other for a scheduler quantum. Critical is
+    // THREAD_PRIORITY_HIGHEST / nice -15, not a realtime class.
     platf::adjust_thread_priority(platf::thread_priority_e::critical);
 
     while (!shutdown_event->peek() && images->running()) {
