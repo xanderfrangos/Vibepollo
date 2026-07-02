@@ -263,7 +263,11 @@
         <CreateFolder />
         <RegistryKey Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Vibepollo">
           <RegistryValue Name="DisplayName" Type="string" Value="Vibepollo" KeyPath="yes" />
-          <RegistryValue Name="DisplayVersion" Type="string" Value="[ProductVersion]" />
+          <!-- Human-readable semver; ProductVersion is ordinal-encoded (e.g.
+               1.18.0-beta.2 -> 1.18.32.0) and would confuse users here. The
+               bootstrapper's ParseVersion maps this string back into the
+               encoded space for comparisons. -->
+          <RegistryValue Name="DisplayVersion" Type="string" Value="$(var.VibeshineSemVer)" />
           <RegistryValue Name="Publisher" Type="string" Value="Nonary" />
           <RegistryValue Name="InstallLocation" Type="string" Value="[INSTALL_ROOT]" />
           <RegistryValue Name="DisplayIcon" Type="string" Value="[INSTALL_ROOT]sunshine.exe" />
