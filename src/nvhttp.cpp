@@ -1524,7 +1524,10 @@ namespace nvhttp {
 
       launch_session->unique_id = get_arg(args, "uniqueid", "unknown");
       launch_session->perm = named_cert_p->perm;
-      launch_session->appid = util::from_view(get_arg(args, "appid", "unknown"));
+      const auto launch_appid_arg = get_arg(args, "appid", "0");
+      const auto launch_appuuid_arg = get_arg(args, "appuuid", "");
+      auto launch_app_ctx = proc::proc.resolve_app(launch_appid_arg, launch_appuuid_arg);
+      launch_session->appid = launch_app_ctx ? (int) util::from_view(launch_app_ctx->id) : (int) util::from_view(launch_appid_arg);
       if (!named_cert_p->output_name_override.empty()) {
         launch_session->output_name_override = named_cert_p->output_name_override;
       }
@@ -1540,42 +1543,38 @@ namespace nvhttp {
         launch_session->client_name = original_client_name;
       }
 
-      if (launch_session->appid > 0) {
+      if (launch_app_ctx || launch_session->appid > 0) {
         try {
-          auto apps_snapshot = proc::proc.get_apps();
-          const std::string app_id_str = std::to_string(launch_session->appid);
-          for (const auto &app_ctx : apps_snapshot) {
-            if (app_ctx.id == app_id_str) {
-              launch_session->gen1_framegen_fix = app_ctx.gen1_framegen_fix;
-              launch_session->gen2_framegen_fix = app_ctx.gen2_framegen_fix;
-              launch_session->frame_generation_enabled = app_ctx.frame_generation_enabled;
-              launch_session->lossless_scaling_framegen = app_ctx.lossless_scaling_framegen;
-              launch_session->lossless_scaling_target_fps = app_ctx.lossless_scaling_target_fps;
-              launch_session->lossless_scaling_rtss_limit = app_ctx.lossless_scaling_rtss_limit;
-              launch_session->frame_generation_provider = app_ctx.frame_generation_provider;
-              rtsp_stream::launch_session_t::app_metadata_t metadata;
-              metadata.id = app_ctx.id;
-              metadata.name = app_ctx.name;
-              metadata.virtual_screen = app_ctx.virtual_screen || app_ctx.virtual_display;
-              metadata.has_command = !app_ctx.cmd.empty();
-              metadata.has_playnite = !app_ctx.playnite_id.empty();
-              metadata.playnite_fullscreen = app_ctx.playnite_fullscreen;
-              launch_session->virtual_display = app_ctx.virtual_screen;
-              if (!launch_session->virtual_display_mode_override && app_ctx.virtual_display_mode_override) {
-                launch_session->virtual_display_mode_override = app_ctx.virtual_display_mode_override;
-              }
-              if (!launch_session->virtual_display_layout_override && app_ctx.virtual_display_layout_override) {
-                launch_session->virtual_display_layout_override = app_ctx.virtual_display_layout_override;
-              }
-              if (!launch_session->dd_config_option_override && app_ctx.dd_config_option_override) {
-                launch_session->dd_config_option_override = app_ctx.dd_config_option_override;
-              }
-              if (!launch_session->output_name_override && app_ctx.output_name_override) {
-                launch_session->output_name_override = *app_ctx.output_name_override;
-              }
-              launch_session->app_metadata = std::move(metadata);
-              break;
+          if (auto app_ctx = launch_app_ctx ? launch_app_ctx : proc::proc.resolve_app(launch_session->appid)) {
+            launch_session->appid = (int) util::from_view(app_ctx->id);
+            launch_session->gen1_framegen_fix = app_ctx->gen1_framegen_fix;
+            launch_session->gen2_framegen_fix = app_ctx->gen2_framegen_fix;
+            launch_session->frame_generation_enabled = app_ctx->frame_generation_enabled;
+            launch_session->lossless_scaling_framegen = app_ctx->lossless_scaling_framegen;
+            launch_session->lossless_scaling_target_fps = app_ctx->lossless_scaling_target_fps;
+            launch_session->lossless_scaling_rtss_limit = app_ctx->lossless_scaling_rtss_limit;
+            launch_session->frame_generation_provider = app_ctx->frame_generation_provider;
+            rtsp_stream::launch_session_t::app_metadata_t metadata;
+            metadata.id = app_ctx->id;
+            metadata.name = app_ctx->name;
+            metadata.virtual_screen = app_ctx->virtual_screen || app_ctx->virtual_display;
+            metadata.has_command = !app_ctx->cmd.empty();
+            metadata.has_playnite = !app_ctx->playnite_id.empty();
+            metadata.playnite_fullscreen = app_ctx->playnite_fullscreen;
+            launch_session->virtual_display = app_ctx->virtual_screen;
+            if (!launch_session->virtual_display_mode_override && app_ctx->virtual_display_mode_override) {
+              launch_session->virtual_display_mode_override = app_ctx->virtual_display_mode_override;
             }
+            if (!launch_session->virtual_display_layout_override && app_ctx->virtual_display_layout_override) {
+              launch_session->virtual_display_layout_override = app_ctx->virtual_display_layout_override;
+            }
+            if (!launch_session->dd_config_option_override && app_ctx->dd_config_option_override) {
+              launch_session->dd_config_option_override = app_ctx->dd_config_option_override;
+            }
+            if (!launch_session->output_name_override && app_ctx->output_name_override) {
+              launch_session->output_name_override = *app_ctx->output_name_override;
+            }
+            launch_session->app_metadata = std::move(metadata);
           }
         } catch (...) {
         }
@@ -2539,6 +2538,7 @@ namespace nvhttp {
           app_node.put("UUID", app.uuid);
           app_node.put("IDX", app.idx);
           app_node.put("ID", app.id);
+          app_node.put("ArtVersion", app.art_version);
 
           apps.push_back(std::make_pair("App", std::move(app_node)));
         }
@@ -2580,7 +2580,8 @@ namespace nvhttp {
 
       auto appid_str = get_arg(args, "appid", "0");
       auto appuuid_str = get_arg(args, "appuuid", "");
-      auto appid = util::from_view(appid_str);
+      auto requested_app = proc::proc.resolve_app(appid_str, appuuid_str);
+      auto appid = requested_app ? util::from_view(requested_app->id) : util::from_view(appid_str);
       auto current_appid = proc::proc.running();
       auto current_app_uuid = proc::proc.get_running_app_uuid();
       bool is_input_only = config::input.enable_input_only_mode && (appid == proc::input_only_app_id || (appuuid_str == REMOTE_INPUT_UUID));
@@ -2679,15 +2680,8 @@ namespace nvhttp {
         try {
           // Find the target app and apply its config overrides (if any), then layer on client overrides.
           std::unordered_map<std::string, std::string> overrides;
-          const auto apps = proc::proc.get_apps();
-          const auto app_iter = std::find_if(apps.begin(), apps.end(), [&](const auto &app) {
-            if (!appuuid_str.empty()) {
-              return app.uuid == appuuid_str;
-            }
-            return app.id == appid_str;
-          });
-          if (app_iter != apps.end()) {
-            overrides = app_iter->config_overrides;
+          if (requested_app) {
+            overrides = requested_app->config_overrides;
           }
 
           auto client_settings = named_cert_p;
@@ -3346,7 +3340,10 @@ namespace nvhttp {
     }
 
     auto args = request->parse_query_string();
-    auto app_image = proc::proc.get_app_image((int) util::from_view(get_arg(args, "appid")));
+    const auto appid = get_arg(args, "appid", "0");
+    const auto appuuid = get_arg(args, "appuuid", "");
+    auto app_ctx = proc::proc.resolve_app(appid, appuuid);
+    auto app_image = app_ctx ? proc::validate_app_image_path(app_ctx->image_path) : proc::proc.get_app_image((int) util::from_view(appid));
 
     fg.disable();
 
