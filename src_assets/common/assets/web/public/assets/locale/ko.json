@@ -589,7 +589,7 @@
     "virtual_display_mode_per_client": "가상 디스플레이 (클라이언트별) — 권장",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Vibepollo가 준비할 디스플레이를 선택하세요: 물리 모니터 유지, 클라이언트별 가상 디스플레이 생성, 또는 공유 가상 화면 재사용. 가상 디스플레이가 권장 기본값입니다 — 물리 모니터의 해상도와 주사율 제한에서 Vibepollo을 자유롭게 합니다.",
+    "virtual_display_mode_step_hint": "Vibepollo가 준비할 디스플레이를 선택하세요: 물리 모니터 유지, 클라이언트별 가상 디스플레이 생성, 또는 공유 가상 화면 재사용. 가상 디스플레이가 권장 기본값입니다 — 물리 모니터의 해상도와 주사율 제한에서 Vibepollo을 자유롭게 하고, 4× 주사율 + WGC 캡처 파이프라인으로 프레임 생성 게임을 깔끔하게 캡처합니다.",
     "dd_use_sunshine_virtual_display_driver": "SudoVDA 사용",
     "dd_use_sunshine_virtual_display_driver_desc": "가상 디스플레이에 SudoVDA를 다시 사용합니다. Vibepollo 디스플레이 드라이버는 설치된 상태로 유지되며, 이 옵션을 해제하면 복원할 수 있습니다.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -795,7 +795,12 @@
     "virtual_display_driver_label": "가상 디스플레이 드라이버",
     "virtual_display_driver_desc": "Vibepollo 디스플레이 드라이버는 가상 디스플레이에 권장되는 기본 드라이버입니다. 이전 드라이버가 필요한 경우에만 SudoVDA(레거시)를 선택하세요 — 둘 다 설치된 상태로 유지되므로 언제든지 다시 전환할 수 있습니다.",
     "virtual_display_driver_vibeshine_option": "Vibepollo 디스플레이 드라이버 (권장, 기본값)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (레거시)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (레거시)",
+    "virtual_display_mode_disabled_win10": "물리 디스플레이 사용 — Windows 10 기본값",
+    "virtual_display_mode_per_client_plain": "가상 디스플레이 (클라이언트별)",
+    "virtual_display_mode_step_hint_win10": "Vibepollo가 준비할 디스플레이를 선택하세요. Windows 10에서는 DXGI 캡처를 사용하는 물리 디스플레이가 기본값입니다. 가상 화면을 가치 있게 만드는 Windows 11 캡처 파이프라인(4× 주사율의 WGC 프레임 생성 캡처)은 여기에서 사용할 수 없습니다. 가상 디스플레이를 수동으로 활성화할 수는 있지만, Windows 10에서는 프레임 생성 캡처와 페이싱에 문제가 발생합니다.",
+    "win10_notice_title": "Windows 10은 지원되지 않습니다",
+    "win10_notice_body": "이 호스트는 Windows 10에서 실행 중입니다. 가상 화면이 프레임 생성 게임을 매끄럽게 캡처할 수 있게 하는 WGC 캡처 파이프라인과 Lossless Scaling 프레임 생성을 포함해, 일부 성능 및 게이밍 기능은 Windows 11에서만 제공됩니다. Windows 10에서 Vibepollo는 DXGI 캡처를 사용하는 물리 디스플레이를 기본값으로 사용합니다. 완전한 경험을 위해 Windows 11로 업그레이드하세요."
   },
   "index": {
     "description": "Vibepollo은 Moonlight의 게임 스트리밍 프로그램입니다.",
@@ -1615,7 +1620,7 @@
     "sync_limiter_reflex_latency": "적용 시 가장 낮은 지연 시간",
     "sync_limiter_reflex_stutter": "가상 화면에서 매끄러움; 물리 화면에서는 게임과 드라이버에 따라 다름",
     "sync_limiter_reflex_advantages": "가장 낮은 입력 지연 시간; 가상 화면에서 자동으로 적용됨; DLSS Frame Generation과 통합됨",
-    "sync_limiter_reflex_disadvantages": "RTSS 설치 필요; 물리 화면에서는 게임과 드라이버에 따라 결과가 다름",
+    "sync_limiter_reflex_disadvantages": "물리 화면에서는 게임과 드라이버에 따라 결과가 다름",
     "sync_limiter_reflex_use": "가상 화면에서는 기본값; 물리 화면에서는 선택 사항",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1630,14 +1635,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "자동은 RTSS를 사용할 수 있을 때마다 이를 우선하고, 사용할 수 없는 경우 NVIDIA 드라이버의 제한기로 대체됩니다. RTSS를 권장합니다. 가상 화면에서 사용되는 NVIDIA Reflex 모드를 포함해, RTSS의 제한기가 가장 일관된 프레임 페이싱을 제공합니다.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "자동 (RTSS 우선, 그다음 NVIDIA 드라이버)",
+      "nvcp": "NVIDIA 드라이버",
+      "rtss": "RTSS (권장)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1656,7 +1661,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "선택 사항: 물리 화면 스트림에 사용되는 RTSS SyncLimiter 모드를 선택하세요. Async가 안전한 기본값입니다 — 위의 비교를 참고하세요.",
-    "rtssMissing": "RTSS가 설치되어 있지 않습니다. RTSS는 가상 화면에서 자동 NVIDIA Reflex 제한기를 구동합니다 — Vibepollo가 Reflex를 적용할 수 있도록 RTSS를 설치하거나 아래에 경로를 설정하세요. 없어도 스트리밍은 계속 작동하지만, 프레임 제한은 적용되지 않습니다.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1665,26 +1669,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "NVIDIA 드라이버 제한기 준비됨.",
+      "nvcpNotDetected": "NVIDIA GPU 감지되지 않음.",
+      "nvcpUnavailable": "NVIDIA 드라이버 통합(NvAPI)을 사용할 수 없습니다.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "물리 화면의 프레임 제한기가 꺼져 있습니다 — 가상 화면에는 스트림 시작 시 자동 프레임 제한이 계속 적용됩니다.",
+      "nvcpFallback": "프레임 제한기 준비됨 — RTSS가 설치되어 있지 않아 NVIDIA 드라이버를 사용합니다. 가장 매끄러운 페이싱을 위해 RTSS를 설치하세요."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "매끄러운 프레임 페이싱",
-    "noticeCopy": "Vibepollo는 스트림 시작 시 선택한 제한기를 적용하고 스트림이 종료되면 드라이버 설정을 복원합니다. RTSS는 물리 화면에서 가장 일관된 페이싱을 제공하며; NVIDIA Control Panel 제한기는 대체 수단입니다.",
+    "noticeCopy": "Vibepollo는 스트림 시작 시 선택한 제한기를 적용하고 스트림이 종료되면 드라이버 설정을 복원합니다. RTSS는 물리 화면에서 가장 일관된 페이싱을 제공하며, NVIDIA 드라이버 제한기는 대체 수단입니다.",
     "autoVirtualFramegenLabel": "가상 화면 자동 제한",
-    "autoVirtualFramegenHint": "가상 화면으로 스트리밍할 때 Vibepollo는 디스플레이를 요청된 새로 고침 빈도의 4×로 실행하고, 매끄럽고 저지연의 페이싱을 위해 그에 맞는 프레임 제한(가능한 경우 NVIDIA Reflex)을 적용합니다. 제한기를 완전히 수동으로 두려면 이 옵션을 끄세요.",
-    "syncLimiterHintVirtual": "가상 화면에서는 Vibepollo가 가장 낮은 지연 시간의 페이싱을 위해 NVIDIA Reflex를 자동으로 적용하므로, 이 설정은 물리 화면 스트림에만 영향을 줍니다.",
-    "noticeTitleVirtual": "NVIDIA Reflex가 자동으로 적용됩니다",
-    "noticeCopyVirtual": "가상 화면으로 스트리밍 중이므로 Vibepollo가 프레임 제한기를 자동으로 활성화하고, 디스플레이를 요청된 새로 고침 빈도의 4×로 실행하며, 매끄럽고 저지연의 페이싱을 위해 NVIDIA Reflex(RTSS가 설치된 경우)를 적용합니다. 수동 설정이 필요 없습니다."
+    "autoVirtualFramegenHint": "가상 화면으로 스트리밍할 때 Vibepollo는 디스플레이를 요청된 새로 고침 빈도의 4×로 실행하고, NVIDIA Reflex로 게임을 스트림의 FPS로 제한합니다 — RTSS가 설치되어 있으면 RTSS를 통해, 그렇지 않으면 NVIDIA 드라이버를 통해 적용됩니다. 제한기를 완전히 수동으로 두려면 이 옵션을 끄세요.",
+    "syncLimiterHintVirtual": "가상 화면에서는 Vibepollo가 NVIDIA Reflex를 자동으로 선택(RTSS를 통해 적용)하므로, 이 선택은 물리 화면 스트림에만 영향을 줍니다.",
+    "rtssMissingNvFallback": "RTSS가 설치되어 있지 않아 Vibepollo는 대신 NVIDIA 드라이버를 통해 프레임 제한을 적용합니다. 스트리밍은 계속 작동하지만, RTSS의 Reflex 제한기가 프레임을 더 일관되게 페이싱합니다 — 가장 매끄러운 스트림을 위해 RTSS를 설치하거나 아래에서 경로를 설정하세요.",
+    "rtssMissingNoFallback": "RTSS가 설치되어 있지 않고 이 시스템에서 사용할 수 있는 대체 제한기도 없어, 스트리밍 중에 게임의 프레임을 제한할 수 없습니다. RTSS를 설치하거나 아래에서 경로를 설정하세요.",
+    "virtual": {
+      "title": "가상 화면에 프레임 제한기가 필요한 이유",
+      "why": "Vibepollo는 가상 화면을 스트림 새로 고침 빈도의 4×로 실행하고 Windows Graphics Capture(WGC)로 캡처합니다. 이 새로 고침 여유 덕분에 WGC는 프레임 생성 게임(DLSS/FSR 프레임 생성, Lossless Scaling, Smooth Motion)을 지터, 스터터, 추가 지연 없이 — 그리고 이전 Vibepollo 버전에서 필요했던 수동 캡처 수정 설정 없이 — 캡처합니다.",
+      "whyCap": "게임이 해서는 안 되는 단 한 가지는 제한 없이 렌더링하는 것입니다. 4× 디스플레이에서는 스트림이 전달할 수 있는 것보다 훨씬 많은 프레임이 생성되어 프레임 타임이 불규칙해지고 — 클라이언트에서 눈에 보이는 스터터가 발생하며 — GPU가 전력으로 작동해 인코더가 자원을 확보하지 못하고 지연이 늘어납니다. 스트림의 FPS에 맞춘 프레임 제한이 이 격차를 메우고 전달을 매끄럽게 유지합니다.",
+      "autoHeading": "Vibepollo는 스트림 시작 시 이를 자동으로 처리합니다:",
+      "step1": "가상 화면을 요청된 새로 고침 빈도의 4×로 실행하고 WGC로 캡처하므로, 프레임 생성 게임도 깔끔하게 캡처되고 캡처가 디스플레이를 기다리는 일이 없습니다.",
+      "step2Nvidia": "NVIDIA Reflex로 게임을 스트림의 FPS로 제한합니다 — RTSS가 설치되어 있으면 RTSS를 통해, 그렇지 않으면 NVIDIA 드라이버를 통해 적용됩니다.",
+      "step2Generic": "RTSS를 통해 게임을 스트림의 FPS로 제한합니다.",
+      "step3": "스트림이 종료되면 원래의 드라이버 설정을 복원합니다.",
+      "pathLabel": "제한기 적용 경로",
+      "pathChecking": "사용 가능 여부를 확인하는 중…",
+      "pathRtssReflex": "RTSS를 통한 NVIDIA Reflex — 가장 매끄러운 페이싱",
+      "pathNvDriver": "NVIDIA 드라이버를 통한 NVIDIA Reflex — 가장 매끄러운 페이싱을 위해 RTSS를 설치하세요",
+      "pathRtss": "RTSS — 스트림의 FPS로 프레임 제한",
+      "pathNone": "사용 가능한 제한기 없음 — 게임을 제한할 수 있도록 RTSS를 설치하세요"
+    }
   },
   "changelog": {
     "nav": "Changelog",

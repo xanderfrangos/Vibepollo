@@ -596,7 +596,7 @@
     "virtual_display_mode_per_client": "Virtuális kijelző (kliensenként) — Ajánlott",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Válaszd ki, melyik kijelzőt készítse elő a Vibepollo: tartsd meg a fizikai monitort, hozz létre kliensenkénti virtuális kijelzőt, vagy használj újra egy megosztott virtuális képernyőt. A virtuális kijelző az ajánlott alapértelmezés — megszabadítja a Vibepollo-t a fizikai monitor felbontási és képfrissítési korlátaitól.",
+    "virtual_display_mode_step_hint": "Válaszd ki, melyik kijelzőt készítse elő a Vibepollo: tartsd meg a fizikai monitort, hozz létre kliensenkénti virtuális kijelzőt, vagy használj újra egy megosztott virtuális képernyőt. A virtuális kijelző az ajánlott alapértelmezés — megszabadítja a Vibepollo-t a fizikai monitor felbontási és képfrissítési korlátaitól, és a 4× frissítést WGC-rögzítéssel párosító folyamata tisztán rögzíti a képkockagenerálást használó játékokat.",
     "dd_use_sunshine_virtual_display_driver": "SudoVDA használata",
     "dd_use_sunshine_virtual_display_driver_desc": "Válts vissza a SudoVDA-ra a virtuális kijelzőkhöz. A Vibepollo kijelző-illesztőprogram telepítve marad, és a beállítás kikapcsolásával visszaállítható.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -796,7 +796,12 @@
     "virtual_display_driver_label": "Virtuális kijelző illesztőprogram",
     "virtual_display_driver_desc": "A Vibepollo kijelző-illesztőprogram az ajánlott alapértelmezés a virtuális kijelzőkhöz. Csak akkor válassza a SudoVDA-t (régi), ha a korábbi illesztőprogramra van szüksége — mindkettő telepítve marad, így bármikor visszaválthat.",
     "virtual_display_driver_vibeshine_option": "Vibepollo kijelző-illesztőprogram (ajánlott, alapértelmezett)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (régi)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (régi)",
+    "virtual_display_mode_disabled_win10": "Fizikai kijelző használata — alapértelmezés Windows 10-en",
+    "virtual_display_mode_per_client_plain": "Virtuális kijelző (kliensenként)",
+    "virtual_display_mode_step_hint_win10": "Válaszd ki, melyik kijelzőt készítse elő a Vibepollo. Windows 10-en az alapértelmezés a fizikai kijelző DXGI-rögzítéssel: az a Windows 11-es rögzítési folyamat, amely miatt a virtuális képernyők igazán megérik (képkockagenerált játékok WGC-rögzítése 4× frissítésen), itt nem érhető el. A virtuális kijelzőt kézzel továbbra is engedélyezheted, de a képkockagenerálás rögzítése és ütemezése Windows 10-en problémás lesz.",
+    "win10_notice_title": "A Windows 10 nem támogatott",
+    "win10_notice_body": "Ez a gazdagép Windows 10-et futtat. Több teljesítmény- és játékfunkció csak Windows 11-en létezik — köztük a WGC rögzítési folyamat, amelynek köszönhetően a virtuális képernyők simán rögzítik a képkockagenerálást használó játékokat, valamint a Lossless Scaling képkockagenerálás. Windows 10-en a Vibepollo alapértelmezés szerint a fizikai kijelzőt használja DXGI-rögzítéssel; a teljes élményhez frissíts Windows 11-re."
   },
   "index": {
     "description": "A Sunshine saját üzemeltetésű játékstream-host a Moonlight-hoz.",
@@ -1616,7 +1621,7 @@
     "sync_limiter_reflex_latency": "A legalacsonyabb késleltetés, amikor alkalmazva van",
     "sync_limiter_reflex_stutter": "Sima a virtuális képernyőkön; a fizikai képernyőkön a játéktól és az illesztőprogramtól függ",
     "sync_limiter_reflex_advantages": "A legalacsonyabb bemeneti késleltetés; a virtuális képernyőkön automatikusan alkalmazva; integrálódik a DLSS Frame Generationnal",
-    "sync_limiter_reflex_disadvantages": "Telepített RTSS-t igényel; a fizikai képernyőkön az eredmények játéktól és illesztőprogramtól függően változnak",
+    "sync_limiter_reflex_disadvantages": "A fizikai képernyőkön az eredmények játéktól és illesztőprogramtól függően változnak",
     "sync_limiter_reflex_use": "Alapértelmezett a virtuális képernyőkhöz; választható a fizikai képernyőkön",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1631,14 +1636,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "Az Auto az RTSS-t részesíti előnyben, amikor csak elérhető, és ha nem az, az NVIDIA illesztőprogram korlátozójára vált vissza. Az RTSS ajánlott: a korlátozója — beleértve a virtuális képernyőkön használt NVIDIA Reflex módot is — adja a legkövetkezetesebb frame pacinget.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "Auto (RTSS, majd NVIDIA illesztőprogram)",
+      "nvcp": "NVIDIA illesztőprogram",
+      "rtss": "RTSS (ajánlott)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1657,7 +1662,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "Választható: válaszd ki a fizikai képernyős streamekhez használt RTSS SyncLimiter módot. Az Async egy biztonságos alapértelmezés — lásd a fenti összehasonlítást.",
-    "rtssMissing": "Az RTSS nincs telepítve. Ez működteti az automatikus NVIDIA Reflex korlátozót a virtuális képernyőkön — telepítsd, vagy állítsd be az alábbi útvonalat, hogy a Vibepollo alkalmazni tudja a Reflexet. A streamelés enélkül is működik, csak képkockakorlát nélkül.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1666,26 +1670,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "Az NVIDIA illesztőprogram korlátozója kész.",
+      "nvcpNotDetected": "Nem észlelhető NVIDIA GPU.",
+      "nvcpUnavailable": "Az NVIDIA illesztőprogram-integráció (NvAPI) nem érhető el.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "A képkockakorlátozó ki van kapcsolva a fizikai képernyőkön — a virtuális képernyők a stream indításakor továbbra is megkapják az automatikus képkockakorlátot.",
+      "nvcpFallback": "A képkockakorlátozó kész — az NVIDIA illesztőprogramot használja, mert az RTSS nincs telepítve. A legsimább pacinghez telepítsd az RTSS-t."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "Sima frame pacing",
-    "noticeCopy": "A Vibepollo a kiválasztott korlátozót a stream indításakor alkalmazza, és a stream végén visszaállítja az illesztőprogram-beállításaidat. Az RTSS adja a legkövetkezetesebb pacinget a fizikai képernyőkön; az NVIDIA Control Panel korlátozója csak tartalék.",
+    "noticeCopy": "A Vibepollo a kiválasztott korlátozót a stream indításakor alkalmazza, és a stream végén visszaállítja az illesztőprogram-beállításaidat. Az RTSS adja a legkövetkezetesebb pacinget a fizikai képernyőkön; az NVIDIA illesztőprogram korlátozója a tartalék.",
     "autoVirtualFramegenLabel": "Virtuális képernyők automatikus korlátozása",
-    "autoVirtualFramegenHint": "Amikor virtuális képernyőre streamelsz, a Vibepollo a kért frissítés 4×-esén futtatja a kijelzőt, és egy hozzá illő képkockakorlátot alkalmaz — NVIDIA Reflexet, ha elérhető — a sima, alacsony késleltetésű pacing érdekében. Kapcsold ki, hogy a korlátozó teljesen kézi maradjon.",
-    "syncLimiterHintVirtual": "A virtuális képernyőkön a Vibepollo automatikusan alkalmazza az NVIDIA Reflexet a legalacsonyabb késleltetésű pacinghez, így ez a beállítás csak a fizikai képernyős streameket érinti.",
-    "noticeTitleVirtual": "Az NVIDIA Reflex automatikusan alkalmazva",
-    "noticeCopyVirtual": "Virtuális képernyőre streamelsz, ezért a Vibepollo automatikusan engedélyezi a képkockakorlátozót, a kért frissítés 4×-esén futtatja a kijelzőt, és alkalmazza az NVIDIA Reflexet (ha az RTSS telepítve van) a sima, alacsony késleltetésű pacing érdekében. Nincs szükség kézi beállításra."
+    "autoVirtualFramegenHint": "Amikor virtuális képernyőre streamelsz, a Vibepollo a kért frissítés 4×-esén futtatja a kijelzőt, és a játékot a stream FPS-ére korlátozza NVIDIA Reflexszel — RTSS-en keresztül, ha telepítve van, különben az NVIDIA illesztőprogramon keresztül. Kapcsold ki, hogy a korlátozó teljesen kézi maradjon.",
+    "syncLimiterHintVirtual": "A virtuális képernyőkön a Vibepollo automatikusan az NVIDIA Reflexet választja (RTSS-en keresztül alkalmazva), így ez a beállítás csak a fizikai képernyős streameket érinti.",
+    "rtssMissingNvFallback": "Az RTSS nincs telepítve, ezért a Vibepollo a képkockakorlátot az NVIDIA illesztőprogramon keresztül alkalmazza. A streamelés így is működik, de az RTSS Reflex korlátozója következetesebben ütemezi a képkockákat — telepítsd, vagy add meg lent az útvonalát a legsimább streamért.",
+    "rtssMissingNoFallback": "Az RTSS nincs telepítve, és ezen a rendszeren nincs elérhető tartalék korlátozó, így streamelés közben a játékok képkockasebessége nem korlátozható. Telepítsd az RTSS-t, vagy add meg lent az útvonalát.",
+    "virtual": {
+      "title": "Miért van szükségük a virtuális képernyőknek képkockakorlátozóra",
+      "why": "A Vibepollo a virtuális képernyőket a stream frissítési sebességének 4×-esén futtatja, és a Windows Graphics Capture-rel (WGC) rögzíti őket. Ekkora frissítési ráhagyás mellett a WGC remegés, akadozás és többletkésleltetés nélkül rögzíti a képkockagenerálást használó játékokat (DLSS/FSR Frame Generation, Lossless Scaling, Smooth Motion) — ráadásul azok a kézi rögzítésjavító beállítások sem kellenek hozzá, amelyeket a régebbi Vibepollo-verziók még megköveteltek.",
+      "whyCap": "Egyetlen dolgot nem szabad a játéknak tennie: korlát nélkül renderelni. Egy 4×-es kijelzőn ilyenkor jóval több képkockát állít elő, mint amennyit a stream továbbítani tud, a képkockaidők kiszámíthatatlanná válnak — ez a kliensen látható akadozás —, a GPU pedig teljes terhelésen pörög, kiéheztetve a kódolót és növelve a késleltetést. A stream FPS-éhez igazított képkockakorlát megszünteti ezt a rést, és simán tartja a továbbítást.",
+      "autoHeading": "A Vibepollo ezt a stream indításakor automatikusan kezeli:",
+      "step1": "A virtuális képernyőt a kért frissítés 4×-esén futtatja WGC-rögzítéssel, így a képkockagenerálást használó címek tisztán rögzülnek, és a rögzítésnek soha nem kell a kijelzőre várnia.",
+      "step2Nvidia": "A játékot a stream FPS-ére korlátozza NVIDIA Reflexszel — RTSS-en keresztül, ha telepítve van, különben az NVIDIA illesztőprogramon keresztül.",
+      "step2Generic": "A játékot a stream FPS-ére korlátozza az RTSS-en keresztül.",
+      "step3": "A stream végén visszaállítja az eredeti illesztőprogram-beállításaidat.",
+      "pathLabel": "Korlátozási módszer",
+      "pathChecking": "Elérhetőség ellenőrzése…",
+      "pathRtssReflex": "NVIDIA Reflex RTSS-en keresztül — a legsimább pacing",
+      "pathNvDriver": "NVIDIA Reflex az NVIDIA illesztőprogramon keresztül — a legsimább pacinghez telepítsd az RTSS-t",
+      "pathRtss": "RTSS — képkockakorlát a stream FPS-én",
+      "pathNone": "Nincs elérhető korlátozó — telepítsd az RTSS-t, hogy a játékok korlátozhatók legyenek"
+    }
   },
   "changelog": {
     "nav": "Changelog",

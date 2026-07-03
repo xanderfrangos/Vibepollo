@@ -589,7 +589,7 @@
     "virtual_display_mode_per_client": "Ecrã virtual (por cliente) — Recomendado",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Selecione qual o ecrã que o Vibepollo deve preparar: manter o seu monitor físico, criar um ecrã virtual por cliente ou reutilizar um ecrã virtual partilhado. Um ecrã virtual é a predefinição recomendada — liberta o Vibepollo dos limites de resolução e taxa de atualização do monitor físico.",
+    "virtual_display_mode_step_hint": "Selecione qual o ecrã que o Vibepollo deve preparar: manter o seu monitor físico, criar um ecrã virtual por cliente ou reutilizar um ecrã virtual partilhado. Um ecrã virtual é a predefinição recomendada — liberta o Vibepollo dos limites de resolução e taxa de atualização do monitor físico, e o seu pipeline de captura WGC com atualização a 4× capta de forma limpa os jogos com geração de fotogramas.",
     "dd_use_sunshine_virtual_display_driver": "Usar SudoVDA",
     "dd_use_sunshine_virtual_display_driver_desc": "Volte a usar o SudoVDA para ecrãs virtuais. O controlador de ecrã do Vibepollo permanece instalado e pode ser restaurado ao desmarcar esta opção.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -795,7 +795,12 @@
     "virtual_display_driver_label": "Controlador de ecrã virtual",
     "virtual_display_driver_desc": "O controlador de ecrã Vibepollo é a predefinição recomendada para ecrãs virtuais. Selecione SudoVDA (antigo) apenas se precisar do controlador anterior — ambos permanecem instalados, pelo que pode voltar atrás a qualquer momento.",
     "virtual_display_driver_vibeshine_option": "Controlador de ecrã Vibepollo (recomendado, predefinição)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (antigo)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (antigo)",
+    "virtual_display_mode_disabled_win10": "Usar ecrã físico — Predefinição no Windows 10",
+    "virtual_display_mode_per_client_plain": "Ecrã virtual (por cliente)",
+    "virtual_display_mode_step_hint_win10": "Selecione qual o ecrã que o Vibepollo deve preparar. No Windows 10, a predefinição é o ecrã físico com captura DXGI: o pipeline de captura do Windows 11 que torna os ecrãs virtuais vantajosos (captura WGC de geração de fotogramas a 4× a taxa de atualização) não está disponível aqui. Ainda pode ativar um ecrã virtual manualmente, mas a captura e a cadência da geração de fotogramas terão problemas no Windows 10.",
+    "win10_notice_title": "O Windows 10 não é suportado",
+    "win10_notice_body": "Este anfitrião está a executar o Windows 10. Várias funcionalidades de desempenho e de jogo existem apenas no Windows 11 — incluindo o pipeline de captura WGC que permite aos ecrãs virtuais captar de forma fluida jogos com geração de fotogramas, e a geração de fotogramas do Lossless Scaling. No Windows 10, o Vibepollo usa por predefinição o seu ecrã físico com captura DXGI; atualize para o Windows 11 para obter a experiência completa."
   },
   "index": {
     "description": "O sol é um anfitrião de jogos auto-hospedado para o Moonlight.",
@@ -1615,7 +1620,7 @@
     "sync_limiter_reflex_latency": "Latência mais baixa quando aplicado",
     "sync_limiter_reflex_stutter": "Fluido em ecrãs virtuais; depende do jogo e do controlador em ecrãs físicos",
     "sync_limiter_reflex_advantages": "Latência de entrada mais baixa; aplicado automaticamente em ecrãs virtuais; integra-se com o DLSS Frame Generation",
-    "sync_limiter_reflex_disadvantages": "Requer o RTSS instalado; em ecrãs físicos os resultados variam consoante o jogo e o controlador",
+    "sync_limiter_reflex_disadvantages": "Em ecrãs físicos os resultados variam consoante o jogo e o controlador",
     "sync_limiter_reflex_use": "Predefinição para ecrãs virtuais; opcional em ecrãs físicos",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1630,14 +1635,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "Auto prefere o RTSS sempre que está disponível e recorre ao limitador do controlador NVIDIA quando não está. O RTSS é recomendado: o seu limitador — incluindo o modo NVIDIA Reflex usado em ecrãs virtuais — oferece a cadência de fotogramas mais consistente.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "Auto (RTSS, depois controlador NVIDIA)",
+      "nvcp": "Controlador NVIDIA",
+      "rtss": "RTSS (recomendado)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1656,7 +1661,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "Opcional: escolha o modo SyncLimiter do RTSS usado para streams em ecrãs físicos. Async é uma predefinição segura — consulte a comparação acima.",
-    "rtssMissing": "O RTSS não está instalado. É ele que alimenta o limitador automático NVIDIA Reflex em ecrãs virtuais — instale-o ou defina o caminho abaixo para que o Vibepollo possa aplicar o Reflex. O streaming continua a funcionar sem ele, apenas sem limite de fotogramas.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1665,26 +1669,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "Limitador do controlador NVIDIA pronto.",
+      "nvcpNotDetected": "Nenhuma GPU NVIDIA detetada.",
+      "nvcpUnavailable": "Integração com o controlador NVIDIA (NvAPI) indisponível.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "Limitador de fotogramas desativado para ecrãs físicos — os ecrãs virtuais continuam a receber o limite de fotogramas automático no início do stream.",
+      "nvcpFallback": "Limitador de fotogramas pronto — a usar o controlador NVIDIA porque o RTSS não está instalado. Instale o RTSS para obter a cadência mais fluida."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "Cadência de fotogramas fluida",
-    "noticeCopy": "O Vibepollo aplica o limitador selecionado no início do stream e restaura as definições do controlador quando o stream termina. O RTSS oferece a cadência mais consistente em ecrãs físicos; o limitador do NVIDIA Control Panel é uma alternativa de recurso.",
+    "noticeCopy": "O Vibepollo aplica o limitador selecionado no início do stream e restaura as definições do controlador quando o stream termina. O RTSS oferece a cadência mais consistente em ecrãs físicos; o limitador do controlador NVIDIA é a alternativa de recurso.",
     "autoVirtualFramegenLabel": "Limitar automaticamente ecrãs virtuais",
-    "autoVirtualFramegenHint": "Ao fazer streaming para um ecrã virtual, o Vibepollo executa o ecrã a 4× a taxa de atualização pedida e aplica um limite de fotogramas correspondente — NVIDIA Reflex quando disponível — para uma cadência fluida e de baixa latência. Desative isto para manter o limitador totalmente manual.",
-    "syncLimiterHintVirtual": "Em ecrãs virtuais, o Vibepollo aplica o NVIDIA Reflex automaticamente para a cadência de latência mais baixa, por isso esta definição afeta apenas os streams em ecrãs físicos.",
-    "noticeTitleVirtual": "O NVIDIA Reflex é aplicado automaticamente",
-    "noticeCopyVirtual": "Está a fazer streaming para um ecrã virtual, por isso o Vibepollo ativa automaticamente o limitador de fotogramas, executa o ecrã a 4× a taxa de atualização pedida e aplica o NVIDIA Reflex (quando o RTSS está instalado) para uma cadência fluida e de baixa latência. Não é necessária qualquer configuração manual."
+    "autoVirtualFramegenHint": "Ao fazer streaming para um ecrã virtual, o Vibepollo executa o ecrã a 4× a taxa de atualização pedida e limita o jogo aos FPS do stream com o NVIDIA Reflex — através do RTSS quando está instalado ou, caso contrário, através do controlador NVIDIA. Desative isto para manter o limitador totalmente manual.",
+    "syncLimiterHintVirtual": "Em ecrãs virtuais, o Vibepollo seleciona o NVIDIA Reflex automaticamente (aplicado através do RTSS), pelo que esta escolha afeta apenas os streams em ecrãs físicos.",
+    "rtssMissingNvFallback": "O RTSS não está instalado, por isso o Vibepollo irá aplicar o limite de fotogramas através do controlador NVIDIA. O streaming continua a funcionar, mas o limitador Reflex do RTSS proporciona uma cadência de fotogramas mais consistente — instale-o ou defina o caminho abaixo para obter o stream mais fluido.",
+    "rtssMissingNoFallback": "O RTSS não está instalado e não existe nenhum limitador alternativo neste sistema, pelo que não é possível limitar os fotogramas dos jogos durante o streaming. Instale o RTSS ou defina o caminho abaixo.",
+    "virtual": {
+      "title": "Porque é que os ecrãs virtuais precisam de um limitador de fotogramas",
+      "why": "O Vibepollo executa os ecrãs virtuais a 4× a taxa de atualização do stream e capta-os com o Windows Graphics Capture (WGC). Com essa margem de atualização, o WGC capta jogos com geração de fotogramas (geração de fotogramas DLSS/FSR, Lossless Scaling, Smooth Motion) sem oscilações, tremuras nem latência adicional — e sem as definições manuais de correção de captura que as versões antigas do Vibepollo exigiam.",
+      "whyCap": "A única coisa que o jogo não deve fazer é renderizar sem limite: num ecrã a 4×, produz muito mais fotogramas do que o stream consegue entregar, os tempos de fotograma tornam-se erráticos — tremura visível no cliente — e a GPU trabalha no máximo, deixando o codificador sem recursos e acrescentando latência. Um limite de fotogramas ajustado aos FPS do stream fecha essa diferença e mantém a entrega fluida.",
+      "autoHeading": "O Vibepollo trata disto automaticamente no início do stream:",
+      "step1": "Executa o ecrã virtual a 4× a taxa de atualização pedida com captura WGC, para que os jogos com geração de fotogramas sejam captados de forma limpa e a captura nunca fique à espera do ecrã.",
+      "step2Nvidia": "Limita o jogo aos FPS do stream com o NVIDIA Reflex — aplicado através do RTSS quando está instalado ou através do controlador NVIDIA quando não está.",
+      "step2Generic": "Limita o jogo aos FPS do stream através do RTSS.",
+      "step3": "Restaura as definições originais do controlador quando o stream termina.",
+      "pathLabel": "Via do limitador",
+      "pathChecking": "A verificar disponibilidade…",
+      "pathRtssReflex": "NVIDIA Reflex via RTSS — cadência mais fluida",
+      "pathNvDriver": "NVIDIA Reflex via controlador NVIDIA — instale o RTSS para obter a cadência mais fluida",
+      "pathRtss": "RTSS — limite de fotogramas aos FPS do stream",
+      "pathNone": "Nenhum limitador disponível — instale o RTSS para que os jogos possam ser limitados"
+    }
   },
   "changelog": {
     "nav": "Changelog",

@@ -601,7 +601,7 @@
     "virtual_display_mode_per_client": "Sanal Ekran (İstemci Başına) — Önerilir",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Vibepollo'ın hangi ekranı hazırlayacağını seçin: fiziksel monitörünüzü koruyun, istemci başına bir sanal ekran oluşturun veya paylaşılan bir sanal ekranı yeniden kullanın. Sanal ekran önerilen varsayılandır — Vibepollo'ı fiziksel monitörün çözünürlük ve yenileme hızı sınırlarından kurtarır.",
+    "virtual_display_mode_step_hint": "Vibepollo'ın hangi ekranı hazırlayacağını seçin: fiziksel monitörünüzü koruyun, istemci başına bir sanal ekran oluşturun veya paylaşılan bir sanal ekranı yeniden kullanın. Sanal ekran önerilen varsayılandır — Vibepollo'ı fiziksel monitörün çözünürlük ve yenileme hızı sınırlarından kurtarır ve 4× yenileme + WGC yakalama hattı, kare üretimi kullanan oyunları sorunsuz yakalar.",
     "dd_use_sunshine_virtual_display_driver": "SudoVDA kullan",
     "dd_use_sunshine_virtual_display_driver_desc": "Sanal ekranlar için SudoVDA'ya geri dönün. Vibepollo Ekran Sürücüsü yüklü kalır ve bu seçenek temizlenerek geri yüklenebilir.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -795,7 +795,12 @@
     "virtual_display_driver_label": "Sanal Ekran Sürücüsü",
     "virtual_display_driver_desc": "Vibepollo Ekran Sürücüsü, sanal ekranlar için önerilen varsayılandır. Yalnızca önceki sürücüye ihtiyacınız varsa SudoVDA'yı (eski) seçin — her ikisi de yüklü kalır, böylece istediğiniz zaman geri dönebilirsiniz.",
     "virtual_display_driver_vibeshine_option": "Vibepollo Ekran Sürücüsü (önerilen, varsayılan)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (eski)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (eski)",
+    "virtual_display_mode_disabled_win10": "Fiziksel Ekran Kullan — Windows 10'da varsayılan",
+    "virtual_display_mode_per_client_plain": "Sanal Ekran (İstemci Başına)",
+    "virtual_display_mode_step_hint_win10": "Vibepollo'ın hangi ekranı hazırlayacağını seçin. Windows 10'da varsayılan, DXGI yakalamalı fiziksel ekrandır: sanal ekranları değerli kılan Windows 11 yakalama hattı (4× yenilemede WGC kare üretimi yakalama) burada mevcut değildir. Sanal ekranı yine de elle etkinleştirebilirsiniz, ancak Windows 10'da kare üretimi yakalama ve hızlandırma sorunlu olacaktır.",
+    "win10_notice_title": "Windows 10 desteklenmiyor",
+    "win10_notice_body": "Bu ana makine Windows 10 çalıştırıyor. Birçok performans ve oyun özelliği yalnızca Windows 11'de bulunur — sanal ekranların kare üretimi kullanan oyunları akıcı biçimde yakalamasını sağlayan WGC yakalama hattı ve Lossless Scaling kare üretimi dahil. Windows 10'da Vibepollo varsayılan olarak DXGI yakalamalı fiziksel ekranınızı kullanır; deneyimin tamamı için Windows 11'e yükseltin."
   },
   "index": {
     "description": "Vibepollo, Moonlight için kendi kendine barındırılan bir oyun akışı sunucusudur.",
@@ -1615,7 +1620,7 @@
     "sync_limiter_reflex_latency": "Uygulandığında en düşük gecikme",
     "sync_limiter_reflex_stutter": "Sanal ekranlarda akıcı; fiziksel ekranlarda oyuna ve sürücüye bağlı",
     "sync_limiter_reflex_advantages": "En düşük giriş gecikmesi; sanal ekranlarda otomatik olarak uygulanır; DLSS Frame Generation ile entegre olur",
-    "sync_limiter_reflex_disadvantages": "RTSS'in kurulu olmasını gerektirir; fiziksel ekranlarda sonuçlar oyuna ve sürücüye göre değişir",
+    "sync_limiter_reflex_disadvantages": "Fiziksel ekranlarda sonuçlar oyuna ve sürücüye göre değişir",
     "sync_limiter_reflex_use": "Sanal ekranlar için varsayılan; fiziksel ekranlarda isteğe bağlı",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1630,14 +1635,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "Otomatik, RTSS mevcut olduğunda onu tercih eder; olmadığında NVIDIA sürücüsünün sınırlayıcısına geri döner. RTSS önerilir: sınırlayıcısı — sanal ekranlarda kullanılan NVIDIA Reflex modu dahil — en tutarlı kare hızlandırmayı sağlar.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "Otomatik (önce RTSS, sonra NVIDIA sürücüsü)",
+      "nvcp": "NVIDIA sürücüsü",
+      "rtss": "RTSS (önerilir)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1656,7 +1661,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "İsteğe bağlı: fiziksel ekran akışları için kullanılan RTSS SyncLimiter modunu seçin. Async güvenli bir varsayılandır — yukarıdaki karşılaştırmaya bakın.",
-    "rtssMissing": "RTSS kurulu değil. Sanal ekranlarda otomatik NVIDIA Reflex sınırlayıcısını çalıştırır — Vibepollo'ın Reflex'i uygulayabilmesi için onu kurun veya aşağıdaki yolu ayarlayın. Akış onsuz da çalışır, ancak kare sınırı olmadan.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1665,26 +1669,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "NVIDIA sürücüsü sınırlayıcısı hazır.",
+      "nvcpNotDetected": "NVIDIA GPU algılanmadı.",
+      "nvcpUnavailable": "NVIDIA sürücü entegrasyonu (NvAPI) kullanılamıyor.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "Kare sınırlayıcı fiziksel ekranlar için kapalı — sanal ekranlar akış başlangıcında yine de otomatik kare sınırını alır.",
+      "nvcpFallback": "Kare sınırlayıcı hazır — RTSS kurulu olmadığı için NVIDIA sürücüsü kullanılıyor. En akıcı hızlandırma için RTSS'i kurun."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "Akıcı kare hızlandırma",
-    "noticeCopy": "Vibepollo, seçtiğiniz sınırlayıcıyı akış başlangıcında uygular ve akış bittiğinde sürücü ayarlarınızı geri yükler. RTSS, fiziksel ekranlarda en tutarlı hızlandırmayı sağlar; NVIDIA Control Panel sınırlayıcısı bir yedektir.",
+    "noticeCopy": "Vibepollo, seçtiğiniz sınırlayıcıyı akış başlangıcında uygular ve akış bittiğinde sürücü ayarlarınızı geri yükler. RTSS, fiziksel ekranlarda en tutarlı hızlandırmayı sağlar; NVIDIA sürücüsünün sınırlayıcısı yedektir.",
     "autoVirtualFramegenLabel": "Sanal ekranları otomatik sınırla",
-    "autoVirtualFramegenHint": "Bir sanal ekrana akış yaparken Vibepollo, ekranı talep edilen yenileme hızının 4× katında çalıştırır ve akıcı, düşük gecikmeli hızlandırma için eşleşen bir kare sınırı — mümkün olduğunda NVIDIA Reflex — uygular. Sınırlayıcıyı tamamen manuel bırakmak için bunu kapatın.",
-    "syncLimiterHintVirtual": "Sanal ekranlarda Vibepollo, en düşük gecikmeli hızlandırma için NVIDIA Reflex'i otomatik olarak uygular; bu nedenle bu ayar yalnızca fiziksel ekran akışlarını etkiler.",
-    "noticeTitleVirtual": "NVIDIA Reflex otomatik olarak uygulanır",
-    "noticeCopyVirtual": "Bir sanal ekrana akış yapıyorsunuz; bu nedenle Vibepollo, kare sınırlayıcısını otomatik olarak etkinleştirir, ekranı talep edilen yenileme hızının 4× katında çalıştırır ve akıcı, düşük gecikmeli hızlandırma için (RTSS kurulu olduğunda) NVIDIA Reflex'i uygular. Manuel kurulum gerekmez."
+    "autoVirtualFramegenHint": "Bir sanal ekrana akış yaparken Vibepollo, ekranı talep edilen yenileme hızının 4× katında çalıştırır ve oyunu NVIDIA Reflex ile akışın FPS değerinde sınırlar — RTSS kuruluysa RTSS üzerinden, değilse NVIDIA sürücüsü üzerinden. Sınırlayıcıyı tamamen manuel bırakmak için bunu kapatın.",
+    "syncLimiterHintVirtual": "Sanal ekranlarda Vibepollo, NVIDIA Reflex'i otomatik olarak seçer (RTSS üzerinden uygulanır); bu nedenle bu seçim yalnızca fiziksel ekran akışlarını etkiler.",
+    "rtssMissingNvFallback": "RTSS kurulu değil; bu yüzden Vibepollo kare sınırını NVIDIA sürücüsü üzerinden uygulayacak. Akış çalışmaya devam eder, ancak RTSS'in Reflex sınırlayıcısı kareleri daha tutarlı hızlandırır — en akıcı akış için RTSS'i kurun veya aşağıdan yolunu ayarlayın.",
+    "rtssMissingNoFallback": "RTSS kurulu değil ve bu sistemde yedek bir sınırlayıcı yok; bu yüzden akış sırasında oyunlara kare sınırı uygulanamaz. RTSS'i kurun veya aşağıdan yolunu ayarlayın.",
+    "virtual": {
+      "title": "Sanal ekranların neden kare sınırlayıcıya ihtiyacı var",
+      "why": "Vibepollo, sanal ekranları akışın yenileme hızının 4× katında çalıştırır ve bunları Windows Graphics Capture (WGC) ile yakalar. Bu yenileme payı sayesinde WGC, kare üretimi kullanan oyunları (DLSS/FSR kare üretimi, Lossless Scaling, Smooth Motion) titreme, takılma veya ek gecikme olmadan — ve eski Vibepollo sürümlerinin gerektirdiği manuel yakalama düzeltme ayarlarına gerek kalmadan — yakalar.",
+      "whyCap": "Oyunun yapmaması gereken tek şey sınırsız kare üretmektir: 4× bir ekranda akışın iletebileceğinden çok daha fazla kare üretir, kare süreleri düzensizleşir — istemcinizde görünür takılmalara yol açar — ve GPU sonuna kadar yüklenerek kodlayıcıyı aç bırakır ve gecikme ekler. Akışın FPS değerine eşlenmiş bir kare sınırı bu açığı kapatır ve iletimi akıcı tutar.",
+      "autoHeading": "Vibepollo bunu akış başlangıcında otomatik olarak halleder:",
+      "step1": "Sanal ekranı, WGC yakalamayla talep edilen yenileme hızının 4× katında çalıştırır; böylece kare üretimi kullanan oyunlar sorunsuz yakalanır ve yakalama asla ekranı beklemez.",
+      "step2Nvidia": "Oyunu NVIDIA Reflex ile akışın FPS değerinde sınırlar — RTSS kuruluysa RTSS üzerinden, değilse NVIDIA sürücüsü üzerinden uygulanır.",
+      "step2Generic": "Oyunu RTSS üzerinden akışın FPS değerinde sınırlar.",
+      "step3": "Akış bittiğinde özgün sürücü ayarlarınızı geri yükler.",
+      "pathLabel": "Sınırlayıcı yöntemi",
+      "pathChecking": "Kullanılabilirlik denetleniyor…",
+      "pathRtssReflex": "RTSS üzerinden NVIDIA Reflex — en akıcı hızlandırma",
+      "pathNvDriver": "NVIDIA sürücüsü üzerinden NVIDIA Reflex — en akıcı hızlandırma için RTSS'i kurun",
+      "pathRtss": "RTSS — akışın FPS değerinde kare sınırı",
+      "pathNone": "Kullanılabilir sınırlayıcı yok — oyunların sınırlanabilmesi için RTSS'i kurun"
+    }
   },
   "changelog": {
     "nav": "Changelog",

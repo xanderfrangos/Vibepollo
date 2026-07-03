@@ -589,7 +589,7 @@
     "virtual_display_mode_per_client": "虚拟显示器（每客户端）（推荐）",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "选择 Vibepollo 应准备的显示器：保留你的物理显示器、创建每客户端的虚拟显示器，或复用共享虚拟屏幕。 虚拟显示器是推荐的默认选项——它使 Vibepollo 不受物理显示器分辨率和刷新率的限制。",
+    "virtual_display_mode_step_hint": "选择 Vibepollo 应准备的显示器：保留你的物理显示器、创建每客户端的虚拟显示器，或复用共享虚拟屏幕。虚拟显示器是推荐的默认选项——它使 Vibepollo 不受物理显示器分辨率和刷新率的限制，其 4× 刷新率 + WGC 捕获管线还能干净地捕获帧生成游戏。",
     "dd_use_sunshine_virtual_display_driver": "使用 SudoVDA",
     "dd_use_sunshine_virtual_display_driver_desc": "切换回 SudoVDA 用于虚拟显示器。Vibepollo 显示驱动仍会保持安装，清除此选项即可恢复使用。",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -795,7 +795,12 @@
     "virtual_display_driver_label": "虚拟显示驱动",
     "virtual_display_driver_desc": "Vibepollo 显示驱动是虚拟显示器的推荐默认驱动。仅当你需要旧驱动时才选择 SudoVDA（旧版）——两者都会保持安装，可随时切换回来。",
     "virtual_display_driver_vibeshine_option": "Vibepollo 显示驱动（推荐，默认）",
-    "virtual_display_driver_sudovda_option": "SudoVDA（旧版）"
+    "virtual_display_driver_sudovda_option": "SudoVDA（旧版）",
+    "virtual_display_mode_disabled_win10": "使用物理显示器（Windows 10 默认）",
+    "virtual_display_mode_per_client_plain": "虚拟显示器（每客户端）",
+    "virtual_display_mode_step_hint_win10": "选择 Vibepollo 应准备的显示器。在 Windows 10 上，默认使用物理显示器搭配 DXGI 捕获：让虚拟显示器发挥价值的 Windows 11 捕获管线（4× 刷新率下的 WGC 帧生成捕获）在此不可用。你仍可手动启用虚拟显示器，但在 Windows 10 上帧生成的捕获和帧间隔会存在问题。",
+    "win10_notice_title": "不支持 Windows 10",
+    "win10_notice_body": "此主机运行的是 Windows 10。多项性能和游戏功能仅在 Windows 11 上提供——包括让虚拟显示器流畅捕获帧生成游戏的 WGC 捕获管线，以及 Lossless Scaling 帧生成。在 Windows 10 上，Vibepollo 默认使用物理显示器搭配 DXGI 捕获；升级到 Windows 11 以获得完整体验。"
   },
   "index": {
     "description": "Vibepollo 是供 Moonlight 使用的自建游戏串流服务。",
@@ -1615,7 +1620,7 @@
     "sync_limiter_reflex_latency": "应用时延迟最低",
     "sync_limiter_reflex_stutter": "在虚拟显示器上流畅；在物理显示器上取决于游戏和驱动",
     "sync_limiter_reflex_advantages": "输入延迟最低；在虚拟显示器上自动应用；可与 DLSS Frame Generation 集成",
-    "sync_limiter_reflex_disadvantages": "需要安装 RTSS；在物理显示器上效果因游戏和驱动而异",
+    "sync_limiter_reflex_disadvantages": "在物理显示器上效果因游戏和驱动而异",
     "sync_limiter_reflex_use": "虚拟显示器的默认选项；物理显示器上可选",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1630,14 +1635,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "“自动”会在 RTSS 可用时优先使用它，不可用时回退到 NVIDIA 驱动的限制器。推荐使用 RTSS：它的限制器——包括在虚拟显示器上使用的 NVIDIA Reflex 模式——能提供最一致的帧间隔。",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "自动（先 RTSS，后 NVIDIA 驱动）",
+      "nvcp": "NVIDIA 驱动",
+      "rtss": "RTSS（推荐）",
       "none": "None"
     },
     "syncLimiter": {
@@ -1656,7 +1661,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "可选：选择用于物理显示器串流的 RTSS SyncLimiter 模式。Async 是安全的默认选项——请参阅上方的对比。",
-    "rtssMissing": "未安装 RTSS。它为虚拟显示器上的自动 NVIDIA Reflex 限制器提供支持——请安装它或在下方设置路径，以便 Vibepollo 能够应用 Reflex。没有它串流仍可正常工作，只是没有 FPS 上限。",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1665,26 +1669,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "NVIDIA 驱动限制器已就绪。",
+      "nvcpNotDetected": "未检测到 NVIDIA GPU。",
+      "nvcpUnavailable": "NVIDIA 驱动集成（NvAPI）不可用。",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "物理显示器的帧率限制器已关闭——虚拟显示器仍会在串流开始时自动应用帧率上限。",
+      "nvcpFallback": "帧率限制器已就绪——由于未安装 RTSS，正在使用 NVIDIA 驱动。安装 RTSS 可获得最流畅的帧间隔。"
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "流畅的帧间隔",
-    "noticeCopy": "Vibepollo 会在串流开始时应用所选的限制器，并在串流结束时还原你的驱动设置。RTSS 在物理显示器上提供最稳定的帧间隔；NVIDIA Control Panel 限制器作为后备方案。",
+    "noticeCopy": "Vibepollo 会在串流开始时应用所选的限制器，并在串流结束时还原你的驱动设置。RTSS 在物理显示器上提供最一致的帧间隔；NVIDIA 驱动限制器作为后备方案。",
     "autoVirtualFramegenLabel": "自动限制虚拟显示器",
-    "autoVirtualFramegenHint": "当串流到虚拟显示器时，Vibepollo 会以请求刷新率的 4× 运行显示器，并应用匹配的 FPS 上限（在可用时使用 NVIDIA Reflex），以实现流畅、低延迟的帧间隔。关闭此项可让限制器完全手动控制。",
-    "syncLimiterHintVirtual": "在虚拟显示器上，Vibepollo 会自动应用 NVIDIA Reflex 以实现最低延迟的帧间隔，因此此设置仅影响物理显示器串流。",
-    "noticeTitleVirtual": "已自动应用 NVIDIA Reflex",
-    "noticeCopyVirtual": "你正在串流到虚拟显示器，因此 Vibepollo 会自动启用帧率限制器，以请求刷新率的 4× 运行显示器，并应用 NVIDIA Reflex（在已安装 RTSS 时），以实现流畅、低延迟的帧间隔。无需任何手动设置。"
+    "autoVirtualFramegenHint": "当串流到虚拟显示器时，Vibepollo 会以请求刷新率的 4× 运行显示器，并通过 NVIDIA Reflex 将游戏限制在串流的 FPS——已安装 RTSS 时通过 RTSS 应用，否则通过 NVIDIA 驱动应用。关闭此项可让限制器完全手动控制。",
+    "syncLimiterHintVirtual": "在虚拟显示器上，Vibepollo 会自动选择 NVIDIA Reflex（通过 RTSS 应用），因此此选项仅影响物理显示器串流。",
+    "rtssMissingNvFallback": "未安装 RTSS，因此 Vibepollo 将改为通过 NVIDIA 驱动应用帧率上限。串流仍可正常工作，但 RTSS 的 Reflex 限制器能提供更一致的帧间隔——安装 RTSS 或在下方设置其路径，以获得最流畅的串流。",
+    "rtssMissingNoFallback": "未安装 RTSS，且此系统上没有可用的后备限制器，因此串流时无法限制游戏帧率。请安装 RTSS 或在下方设置其路径。",
+    "virtual": {
+      "title": "为什么虚拟显示器需要帧率限制器",
+      "why": "Vibepollo 会以串流刷新率的 4× 运行虚拟显示器，并使用 Windows Graphics Capture（WGC）进行捕获。凭借这一刷新率余量，WGC 可以在没有抖动、卡顿或额外延迟的情况下捕获帧生成游戏（DLSS/FSR 帧生成、Lossless Scaling、Smooth Motion）——也无需旧版 Vibepollo 所要求的手动捕获修复设置。",
+      "whyCap": "游戏唯一不能做的就是不加限制地渲染：在 4× 显示器上，它会产生远超串流所能传送的帧数，帧时间变得紊乱——在客户端上表现为可见的卡顿——同时 GPU 满载运行，挤占编码器资源并增加延迟。与串流 FPS 匹配的帧率上限可以消除这一差距，保持传送流畅。",
+      "autoHeading": "Vibepollo 会在串流开始时自动处理这一切：",
+      "step1": "以请求刷新率的 4× 运行虚拟显示器并使用 WGC 捕获，因此帧生成游戏能被干净地捕获，捕获也永远不会等待显示器。",
+      "step2Nvidia": "通过 NVIDIA Reflex 将游戏限制在串流的 FPS——已安装 RTSS 时通过 RTSS 应用，否则通过 NVIDIA 驱动应用。",
+      "step2Generic": "通过 RTSS 将游戏限制在串流的 FPS。",
+      "step3": "在串流结束时还原你原来的驱动设置。",
+      "pathLabel": "限制器途径",
+      "pathChecking": "正在检查可用性…",
+      "pathRtssReflex": "通过 RTSS 的 NVIDIA Reflex——帧间隔最流畅",
+      "pathNvDriver": "通过 NVIDIA 驱动的 NVIDIA Reflex——安装 RTSS 可获得最流畅的帧间隔",
+      "pathRtss": "RTSS——按串流的 FPS 限制帧率",
+      "pathNone": "没有可用的限制器——请安装 RTSS 以便限制游戏帧率"
+    }
   },
   "changelog": {
     "nav": "Changelog",

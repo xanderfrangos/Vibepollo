@@ -605,7 +605,7 @@
     "virtual_display_mode_per_client": "Виртуален дисплей (за всеки клиент) — препоръчително",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Изберете кой дисплей да подготви Vibepollo: запазете физическия монитор, създайте виртуален дисплей за всеки клиент или използвайте повторно споделен виртуален екран. Виртуалният дисплей е препоръчителният избор по подразбиране — той освобождава Vibepollo от ограниченията на резолюцията и честотата на опресняване на физическия монитор.",
+    "virtual_display_mode_step_hint": "Изберете кой дисплей да подготви Vibepollo: запазете физическия монитор, създайте виртуален дисплей за всеки клиент или използвайте повторно споделен виртуален екран. Виртуалният дисплей е препоръчителният избор по подразбиране — той освобождава Vibepollo от ограниченията на резолюцията и честотата на опресняване на физическия монитор, а неговият конвейер с 4× опресняване и WGC заснемане улавя чисто игрите с генериране на кадри.",
     "dd_use_sunshine_virtual_display_driver": "Използвай SudoVDA",
     "dd_use_sunshine_virtual_display_driver_desc": "Превключете обратно към SudoVDA за виртуални дисплеи. Дисплейният драйвер на Vibepollo остава инсталиран и може да бъде възстановен, като премахнете отметката от тази опция.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -795,7 +795,12 @@
     "virtual_display_driver_label": "Драйвер за виртуален дисплей",
     "virtual_display_driver_desc": "Драйверът за дисплей Vibepollo е препоръчителният по подразбиране за виртуални дисплеи. Изберете SudoVDA (остарял) само ако имате нужда от предишния драйвер — и двата остават инсталирани, така че можете да превключите обратно по всяко време.",
     "virtual_display_driver_vibeshine_option": "Драйвер за дисплей Vibepollo (препоръчителен, по подразбиране)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (остарял)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (остарял)",
+    "virtual_display_mode_disabled_win10": "Използвай физически дисплей — по подразбиране на Windows 10",
+    "virtual_display_mode_per_client_plain": "Виртуален дисплей (за всеки клиент)",
+    "virtual_display_mode_step_hint_win10": "Изберете кой дисплей да подготви Vibepollo. На Windows 10 физическият дисплей със заснемане чрез DXGI е изборът по подразбиране: конвейерът за заснемане от Windows 11, който прави виртуалните екрани полезни (WGC заснемане на генериране на кадри при 4× опресняване), не е наличен тук. Все пак можете да включите виртуален дисплей ръчно, но заснемането и темпото при генериране на кадри ще имат проблеми на Windows 10.",
+    "win10_notice_title": "Windows 10 не се поддържа",
+    "win10_notice_body": "Този хост работи под Windows 10. Няколко функции за производителност и игри съществуват само на Windows 11 — включително конвейерът за заснемане с WGC, който позволява на виртуалните екрани да заснемат плавно игрите с генериране на кадри, както и генерирането на кадри с Lossless Scaling. На Windows 10 Vibepollo използва по подразбиране физическия ви дисплей със заснемане чрез DXGI; надстройте до Windows 11 за пълното изживяване."
   },
   "index": {
     "description": "Vibepollo е сървър за собствено поточно предаване на игри, предназначен за ползване с Moonlight.",
@@ -1615,7 +1620,7 @@
     "sync_limiter_reflex_latency": "Най-ниска латентност, когато се прилага",
     "sync_limiter_reflex_stutter": "Плавно на виртуални екрани; зависи от играта и драйвера на физически екрани",
     "sync_limiter_reflex_advantages": "Най-ниска входна латентност; прилага се автоматично на виртуални екрани; интегрира се с DLSS Frame Generation",
-    "sync_limiter_reflex_disadvantages": "Изисква инсталиран RTSS; на физически екрани резултатите варират според играта и драйвера",
+    "sync_limiter_reflex_disadvantages": "На физически екрани резултатите варират според играта и драйвера",
     "sync_limiter_reflex_use": "По подразбиране за виртуални екрани; незадължително на физически екрани",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1630,14 +1635,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "„Авто“ предпочита RTSS, когато е наличен, и преминава към ограничителя на драйвера на NVIDIA, когато не е. RTSS се препоръчва: неговият ограничител — включително режимът NVIDIA Reflex, използван на виртуални екрани — осигурява най-стабилното темпо на кадрите.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "Авто (RTSS, после драйверът на NVIDIA)",
+      "nvcp": "Драйвер на NVIDIA",
+      "rtss": "RTSS (препоръчително)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1656,7 +1661,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "Незадължително: изберете режима на RTSS SyncLimiter, използван за потоци към физически екрани. Async е безопасна стойност по подразбиране — вижте сравнението по-горе.",
-    "rtssMissing": "RTSS не е инсталиран. Той задвижва автоматичния ограничител NVIDIA Reflex на виртуални екрани — инсталирайте го или задайте пътя по-долу, за да може Vibepollo да приложи Reflex. Стриймингът работи и без него, просто без лимит на кадрите.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1665,26 +1669,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "Ограничителят на драйвера на NVIDIA е готов.",
+      "nvcpNotDetected": "Не е открит NVIDIA GPU.",
+      "nvcpUnavailable": "Интеграцията с драйвера на NVIDIA (NvAPI) е недостъпна.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "Ограничителят на кадри е изключен за физически екрани — виртуалните екрани все пак получават автоматичния лимит на кадрите при стартиране на потока.",
+      "nvcpFallback": "Ограничителят на кадри е готов — използва се драйверът на NVIDIA, защото RTSS не е инсталиран. Инсталирайте RTSS за най-плавното темпо."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "Плавно темпо на кадрите",
-    "noticeCopy": "Vibepollo прилага избрания от вас ограничител при стартиране на потока и възстановява настройките на драйвера, когато потокът приключи. RTSS осигурява най-стабилното темпо на физически екрани; ограничителят на NVIDIA Control Panel е резервен вариант.",
+    "noticeCopy": "Vibepollo прилага избрания от вас ограничител при стартиране на потока и възстановява настройките на драйвера, когато потокът приключи. RTSS осигурява най-стабилното темпо на физически екрани; ограничителят на драйвера на NVIDIA е резервният вариант.",
     "autoVirtualFramegenLabel": "Автоматично ограничаване на виртуалните екрани",
-    "autoVirtualFramegenHint": "При стрийминг към виртуален екран Vibepollo стартира дисплея с 4× заявената честота на опресняване и прилага съответстващ лимит на кадрите — NVIDIA Reflex, когато е наличен — за плавно темпо с ниска латентност. Изключете това, за да оставите ограничителя изцяло ръчен.",
-    "syncLimiterHintVirtual": "На виртуални екрани Vibepollo прилага NVIDIA Reflex автоматично за темпо с най-ниска латентност, така че тази настройка засяга само потоците към физически екрани.",
-    "noticeTitleVirtual": "NVIDIA Reflex се прилага автоматично",
-    "noticeCopyVirtual": "Стриймвате към виртуален екран, така че Vibepollo автоматично включва ограничителя на кадри, стартира дисплея с 4× заявената честота на опресняване и прилага NVIDIA Reflex (когато RTSS е инсталиран) за плавно темпо с ниска латентност. Не е необходима ръчна настройка."
+    "autoVirtualFramegenHint": "При стрийминг към виртуален екран Vibepollo стартира дисплея с 4× заявената честота на опресняване и ограничава играта до FPS на потока с NVIDIA Reflex — чрез RTSS, когато е инсталиран, а в противен случай чрез драйвера на NVIDIA. Изключете това, за да оставите ограничителя изцяло ръчен.",
+    "syncLimiterHintVirtual": "На виртуални екрани Vibepollo избира NVIDIA Reflex автоматично (прилага се чрез RTSS), така че този избор засяга само потоците към физически екрани.",
+    "rtssMissingNvFallback": "RTSS не е инсталиран, затова Vibepollo ще приложи лимита на кадрите чрез драйвера на NVIDIA. Стриймингът продължава да работи, но ограничителят Reflex на RTSS осигурява по-стабилно темпо на кадрите — инсталирайте го или задайте пътя по-долу за най-плавен поток.",
+    "rtssMissingNoFallback": "RTSS не е инсталиран и на тази система няма наличен резервен ограничител, затова кадрите на игрите не могат да бъдат ограничавани по време на стрийминг. Инсталирайте RTSS или задайте пътя по-долу.",
+    "virtual": {
+      "title": "Защо виртуалните екрани се нуждаят от ограничител на кадри",
+      "why": "Vibepollo стартира виртуалните екрани с 4× честотата на опресняване на потока и ги заснема с Windows Graphics Capture (WGC). С този запас от опресняване WGC заснема игрите с генериране на кадри (генериране на кадри чрез DLSS/FSR, Lossless Scaling, Smooth Motion) без трептене, накъсване или допълнителна латентност — и без ръчните настройки за поправка на заснемането, които изискваха по-старите версии на Vibepollo.",
+      "whyCap": "Единственото, което играта не бива да прави, е да рендира без ограничение: на 4× дисплей тя произвежда далеч повече кадри, отколкото потокът може да достави, времената на кадрите стават хаотични — видимо накъсване при клиента — а GPU работи на пълни обороти, което изтощава енкодера и добавя латентност. Лимит на кадрите, съответстващ на FPS на потока, затваря тази разлика и поддържа доставката плавна.",
+      "autoHeading": "Vibepollo се грижи за това автоматично при стартиране на потока:",
+      "step1": "Стартира виртуалния екран с 4× заявената честота на опресняване със заснемане чрез WGC, така че игрите с генериране на кадри се заснемат чисто и заснемането никога не чака дисплея.",
+      "step2Nvidia": "Ограничава играта до FPS на потока с NVIDIA Reflex — чрез RTSS, когато е инсталиран, или чрез драйвера на NVIDIA, когато не е.",
+      "step2Generic": "Ограничава играта до FPS на потока чрез RTSS.",
+      "step3": "Възстановява оригиналните настройки на драйвера, когато потокът приключи.",
+      "pathLabel": "Начин на ограничаване",
+      "pathChecking": "Проверка на наличността…",
+      "pathRtssReflex": "NVIDIA Reflex чрез RTSS — най-плавното темпо",
+      "pathNvDriver": "NVIDIA Reflex чрез драйвера на NVIDIA — инсталирайте RTSS за най-плавното темпо",
+      "pathRtss": "RTSS — ограничава играта до FPS на потока",
+      "pathNone": "Няма наличен ограничител — инсталирайте RTSS, за да могат игрите да бъдат ограничавани"
+    }
   },
   "changelog": {
     "nav": "Changelog",

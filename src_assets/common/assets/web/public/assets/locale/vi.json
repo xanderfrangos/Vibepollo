@@ -596,7 +596,7 @@
     "virtual_display_mode_per_client": "Màn hình ảo (Theo từng client) — Khuyến nghị",
     "virtual_display_mode_shared": "Shared Virtual Display",
     "virtual_display_mode_label": "Virtual display mode",
-    "virtual_display_mode_step_hint": "Chọn màn hình mà Vibepollo nên chuẩn bị: giữ màn hình vật lý của bạn, tạo màn hình ảo theo từng client, hoặc tái sử dụng màn hình ảo dùng chung. Màn hình ảo là mặc định được khuyến nghị — nó giải phóng Vibepollo khỏi giới hạn độ phân giải và tần số quét của màn hình vật lý.",
+    "virtual_display_mode_step_hint": "Chọn màn hình mà Vibepollo nên chuẩn bị: giữ màn hình vật lý của bạn, tạo màn hình ảo theo từng client, hoặc tái sử dụng màn hình ảo dùng chung. Màn hình ảo là mặc định được khuyến nghị — nó giải phóng Vibepollo khỏi giới hạn độ phân giải và tần số quét của màn hình vật lý, và pipeline tần số quét 4× kết hợp thu hình WGC của nó thu các game có frame generation một cách mượt mà.",
     "dd_use_sunshine_virtual_display_driver": "Sử dụng SudoVDA",
     "dd_use_sunshine_virtual_display_driver_desc": "Chuyển lại sang SudoVDA cho màn hình ảo. Driver màn hình Vibepollo vẫn được cài đặt và có thể được khôi phục bằng cách bỏ chọn tùy chọn này.",
     "virtual_display_hdr_tip": "HDR Tip: Run Windows HDR Calibration while streaming and save the profile. Then open the Clients tab and click HDR Color Profile for the client to choose the saved profile.",
@@ -796,7 +796,12 @@
     "virtual_display_driver_label": "Trình điều khiển màn hình ảo",
     "virtual_display_driver_desc": "Trình điều khiển màn hình Vibepollo là mặc định được khuyến nghị cho màn hình ảo. Chỉ chọn SudoVDA (cũ) nếu bạn cần trình điều khiển trước đây — cả hai vẫn được cài đặt, vì vậy bạn có thể chuyển lại bất cứ lúc nào.",
     "virtual_display_driver_vibeshine_option": "Trình điều khiển màn hình Vibepollo (khuyến nghị, mặc định)",
-    "virtual_display_driver_sudovda_option": "SudoVDA (cũ)"
+    "virtual_display_driver_sudovda_option": "SudoVDA (cũ)",
+    "virtual_display_mode_disabled_win10": "Dùng màn hình vật lý — Mặc định trên Windows 10",
+    "virtual_display_mode_per_client_plain": "Màn hình ảo (Theo từng client)",
+    "virtual_display_mode_step_hint_win10": "Chọn màn hình mà Vibepollo nên chuẩn bị. Trên Windows 10, màn hình vật lý với thu hình DXGI là mặc định: pipeline thu hình của Windows 11 — thứ khiến màn hình ảo trở nên đáng dùng (thu hình frame generation bằng WGC ở 4× tần số quét) — không khả dụng ở đây. Bạn vẫn có thể bật màn hình ảo thủ công, nhưng việc thu hình và điều phối frame generation sẽ gặp vấn đề trên Windows 10.",
+    "win10_notice_title": "Windows 10 không được hỗ trợ",
+    "win10_notice_body": "Máy chủ này đang chạy Windows 10. Một số tính năng hiệu năng và chơi game chỉ có trên Windows 11 — bao gồm pipeline thu hình WGC cho phép màn hình ảo thu mượt mà các game có frame generation, và frame generation của Lossless Scaling. Trên Windows 10, Vibepollo mặc định dùng màn hình vật lý của bạn với thu hình DXGI; hãy nâng cấp lên Windows 11 để có trải nghiệm đầy đủ."
   },
   "index": {
     "description": "Sunshine là một nền tảng phát trực tiếp game tự chủ cho Moonlight.",
@@ -1616,7 +1621,7 @@
     "sync_limiter_reflex_latency": "Độ trễ thấp nhất khi được áp dụng",
     "sync_limiter_reflex_stutter": "Mượt trên màn hình ảo; phụ thuộc vào game và driver trên màn hình vật lý",
     "sync_limiter_reflex_advantages": "Độ trễ nhập liệu thấp nhất; tự động áp dụng trên màn hình ảo; tích hợp với DLSS Frame Generation",
-    "sync_limiter_reflex_disadvantages": "Cần cài đặt RTSS; trên màn hình vật lý kết quả thay đổi tùy theo game và driver",
+    "sync_limiter_reflex_disadvantages": "Trên màn hình vật lý kết quả thay đổi tùy theo game và driver",
     "sync_limiter_reflex_use": "Mặc định cho màn hình ảo; tùy chọn trên màn hình vật lý",
     "recommend_title": "RTSS recommended",
     "recommend_copy": "RTSS delivers the smoothest streaming experience. Install it if missing; NVIDIA's frame limiter is not recommended because it cannot guarantee perfect frame pacing.",
@@ -1631,14 +1636,14 @@
     "enable": "Enable frame limiter",
     "enableHint": "Vibepollo applies the selected limiter provider at stream start and restores the previous driver setting when the stream ends.",
     "providerLabel": "Limiter provider",
-    "providerHint": "Auto prefers RTSS whenever it is available and falls back to the NVIDIA Control Panel limiter if needed. NVIDIA's limiter is not recommended because it cannot guarantee perfect frame pacing.",
+    "providerHint": "Auto ưu tiên RTSS bất cứ khi nào khả dụng và quay về bộ giới hạn của driver NVIDIA khi không có. RTSS được khuyến nghị: bộ giới hạn của nó — bao gồm chế độ NVIDIA Reflex dùng trên màn hình ảo — mang lại điều phối khung hình ổn định nhất.",
     "limitLabel": "FPS limit override",
     "limitHint": "Optional global FPS limit for NVIDIA or RTSS. Set to 0 to use the stream's requested FPS.",
     "limitPlaceholder": "0",
     "provider": {
-      "auto": "Auto (prefer RTSS)",
-      "nvcp": "NVIDIA Control Panel (not recommended)",
-      "rtss": "RTSS",
+      "auto": "Auto (RTSS, sau đó driver NVIDIA)",
+      "nvcp": "Driver NVIDIA",
+      "rtss": "RTSS (khuyến nghị)",
       "none": "None"
     },
     "syncLimiter": {
@@ -1657,7 +1662,6 @@
     "rtssPathHint": "Root install folder (leave blank to auto-detect under Program Files / Program Files (x86)).",
     "syncLimiterLabel": "RTSS SyncLimiter mode",
     "syncLimiterHint": "Tùy chọn: chọn chế độ RTSS SyncLimiter dùng cho các stream trên màn hình vật lý. Async là mặc định an toàn — hãy xem bảng so sánh ở trên.",
-    "rtssMissing": "RTSS chưa được cài đặt. Nó cung cấp bộ giới hạn NVIDIA Reflex tự động trên màn hình ảo — hãy cài đặt nó hoặc đặt đường dẫn bên dưới để Vibepollo có thể áp dụng Reflex. Việc stream vẫn hoạt động khi không có nó, chỉ là không có giới hạn khung hình.",
     "status": {
       "unknown": "Frame limiter status unavailable.",
       "error": "Failed to query frame limiter status.",
@@ -1666,26 +1670,44 @@
       "configured": "Configured provider: {provider}",
       "active": "Active provider: {provider}",
       "limiterDisabled": "Frame limiter disabled.",
-      "nvcpDetected": "NVIDIA Control Panel detected (not recommended).",
-      "nvcpNotDetected": "NVIDIA Control Panel not detected.",
-      "nvcpUnavailable": "NVIDIA Control Panel integration unavailable.",
+      "nvcpDetected": "Bộ giới hạn của driver NVIDIA đã sẵn sàng.",
+      "nvcpNotDetected": "Không phát hiện GPU NVIDIA.",
+      "nvcpUnavailable": "Tích hợp driver NVIDIA (NvAPI) không khả dụng.",
       "rtssDetected": "RTSS detected and ready.",
       "rtssNotDetected": "RTSS not detected.",
       "none": "None",
       "rtssBootstrap": "RTSS detected; Vibepollo will refresh RTSS configuration when streaming starts.",
       "rtssBootstrapHint": "Vibepollo manages RTSS configuration automatically; no action needed.",
-      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins."
+      "rtssAutolaunchHint": "Vibepollo will launch RTSS automatically when a stream begins.",
+      "limiterDisabledVirtualAuto": "Bộ giới hạn khung hình đã tắt cho màn hình vật lý — màn hình ảo vẫn nhận giới hạn khung hình tự động khi bắt đầu stream.",
+      "nvcpFallback": "Bộ giới hạn khung hình đã sẵn sàng — đang dùng driver NVIDIA vì RTSS chưa được cài đặt. Hãy cài đặt RTSS để có điều phối mượt mà nhất."
     },
     "actions": {
       "refresh": "Refresh"
     },
     "noticeTitle": "Điều phối khung hình mượt mà",
-    "noticeCopy": "Vibepollo áp dụng bộ giới hạn bạn chọn khi bắt đầu stream và khôi phục thiết lập driver khi stream kết thúc. RTSS mang lại điều phối khung hình ổn định nhất trên màn hình vật lý; bộ giới hạn NVIDIA Control Panel là phương án dự phòng.",
+    "noticeCopy": "Vibepollo áp dụng bộ giới hạn bạn chọn khi bắt đầu stream và khôi phục thiết lập driver khi stream kết thúc. RTSS mang lại điều phối ổn định nhất trên màn hình vật lý; bộ giới hạn của driver NVIDIA là phương án dự phòng.",
     "autoVirtualFramegenLabel": "Tự động giới hạn màn hình ảo",
-    "autoVirtualFramegenHint": "Khi stream tới một màn hình ảo, Vibepollo chạy màn hình ở mức 4× tần số quét được yêu cầu và áp dụng giới hạn khung hình tương ứng — NVIDIA Reflex khi khả dụng — để điều phối mượt mà, độ trễ thấp. Hãy tắt mục này để bộ giới hạn hoàn toàn thủ công.",
-    "syncLimiterHintVirtual": "Trên màn hình ảo, Vibepollo tự động áp dụng NVIDIA Reflex để điều phối với độ trễ thấp nhất, vì vậy thiết lập này chỉ ảnh hưởng đến các stream trên màn hình vật lý.",
-    "noticeTitleVirtual": "NVIDIA Reflex được áp dụng tự động",
-    "noticeCopyVirtual": "Bạn đang stream tới một màn hình ảo, nên Vibepollo tự động bật bộ giới hạn khung hình, chạy màn hình ở mức 4× tần số quét được yêu cầu và áp dụng NVIDIA Reflex (khi RTSS được cài đặt) để điều phối mượt mà, độ trễ thấp. Không cần thiết lập thủ công."
+    "autoVirtualFramegenHint": "Khi stream tới một màn hình ảo, Vibepollo chạy màn hình ở mức 4× tần số quét được yêu cầu và giới hạn game ở FPS của stream bằng NVIDIA Reflex — thông qua RTSS khi đã cài đặt, nếu không thì thông qua driver NVIDIA. Hãy tắt mục này để bộ giới hạn hoàn toàn thủ công.",
+    "syncLimiterHintVirtual": "Trên màn hình ảo, Vibepollo tự động chọn NVIDIA Reflex (áp dụng thông qua RTSS), vì vậy lựa chọn này chỉ ảnh hưởng đến các stream trên màn hình vật lý.",
+    "rtssMissingNvFallback": "RTSS chưa được cài đặt, vì vậy Vibepollo sẽ áp dụng giới hạn khung hình thông qua driver NVIDIA. Việc stream vẫn hoạt động, nhưng bộ giới hạn Reflex của RTSS điều phối khung hình ổn định hơn — hãy cài đặt nó hoặc đặt đường dẫn bên dưới để stream mượt mà nhất.",
+    "rtssMissingNoFallback": "RTSS chưa được cài đặt và hệ thống này không có bộ giới hạn dự phòng nào, vì vậy không thể giới hạn khung hình của game trong khi stream. Hãy cài đặt RTSS hoặc đặt đường dẫn bên dưới.",
+    "virtual": {
+      "title": "Vì sao màn hình ảo cần bộ giới hạn khung hình",
+      "why": "Vibepollo chạy màn hình ảo ở mức 4× tần số quét của stream và thu hình chúng bằng Windows Graphics Capture (WGC). Với khoảng dư tần số quét đó, WGC thu các game có frame generation (DLSS/FSR Frame Generation, Lossless Scaling, Smooth Motion) mà không bị jitter, giật hình hay thêm độ trễ — và không cần các thiết lập sửa lỗi thu hình thủ công mà các phiên bản Vibepollo cũ yêu cầu.",
+      "whyCap": "Điều duy nhất game không được làm là render không giới hạn: trên màn hình 4×, nó tạo ra nhiều khung hình hơn hẳn mức stream có thể truyền tải, frametime trở nên thất thường — giật hình thấy rõ trên client của bạn — và GPU chạy hết công suất, khiến bộ mã hóa bị thiếu tài nguyên và tăng độ trễ. Một giới hạn khung hình khớp với FPS của stream sẽ khép lại khoảng cách đó và giữ việc truyền tải mượt mà.",
+      "autoHeading": "Vibepollo tự động xử lý việc này khi bắt đầu stream:",
+      "step1": "Chạy màn hình ảo ở mức 4× tần số quét được yêu cầu với thu hình WGC, để các game có frame generation được thu mượt mà và quá trình thu hình không bao giờ phải chờ màn hình.",
+      "step2Nvidia": "Giới hạn game ở FPS của stream bằng NVIDIA Reflex — áp dụng thông qua RTSS khi đã cài đặt, hoặc thông qua driver NVIDIA khi chưa có.",
+      "step2Generic": "Giới hạn game ở FPS của stream thông qua RTSS.",
+      "step3": "Khôi phục thiết lập driver ban đầu của bạn khi stream kết thúc.",
+      "pathLabel": "Phương thức giới hạn",
+      "pathChecking": "Đang kiểm tra tính khả dụng…",
+      "pathRtssReflex": "NVIDIA Reflex qua RTSS — điều phối mượt mà nhất",
+      "pathNvDriver": "NVIDIA Reflex qua driver NVIDIA — hãy cài đặt RTSS để có điều phối mượt mà nhất",
+      "pathRtss": "RTSS — giới hạn game ở FPS của stream",
+      "pathNone": "Không có bộ giới hạn khả dụng — hãy cài đặt RTSS để có thể giới hạn khung hình game"
+    }
   },
   "changelog": {
     "nav": "Changelog",
