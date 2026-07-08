@@ -911,6 +911,9 @@ const ALLOWED_OVERRIDE_KEYS = new Set<string>([
   'rtx_hdr_middle_gray',
   'rtx_hdr_contrast',
   'rtx_hdr_saturation',
+  'lsfg_capture_framegen',
+  'lsfg_flow_scale',
+  'lsfg_max_multiplier',
 
   // Codec / capture negotiation
   'fec_percentage',

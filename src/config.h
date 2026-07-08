@@ -229,6 +229,16 @@ namespace config {
     bool wgc_pacing_smoothing;  ///< Smooth WGC delivered frame cadence under low-latency (Reflex) source caps by snapping the pacing-group re-anchor back onto the prior grid instead of the jittery arrival phase. Disable for byte-for-byte legacy pacing.
     std::string fallback_mode;
     bool ignore_encoder_probe_failure;
+
+    // Host-side Lossless Scaling frame generation (LSFG) applied inside the WGC
+    // capture pipeline: captured frames are interpolated with the LSFG optical-flow
+    // shaders (adaptive mode) up to the client-requested stream FPS. Requires a
+    // local Lossless Scaling installation (Lossless.dll); Windows + WGC only.
+    struct lsfg_t {
+      bool enabled;  ///< Interpolate captured frames up to the requested stream FPS.
+      int flow_scale;  ///< Optical-flow resolution scale in percent (25..100).
+      int max_multiplier;  ///< Adaptive interpolation cap (max generated/source frame ratio, 2..20).
+    } lsfg;
   };
 
   struct audio_t {

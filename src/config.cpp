@@ -865,6 +865,12 @@ namespace config {
     true,  // wgc_pacing_smoothing
     "1920x1080x60",  // fallback_mode
     false,  // ignore_encoder_probe_failure
+
+    {
+      false,  // lsfg.enabled
+      100,  // lsfg.flow_scale
+      4,  // lsfg.max_multiplier
+    },  // lsfg
   };
 
   audio_t audio {
@@ -1667,6 +1673,9 @@ namespace config {
 
     string_f(vars, "capture", video.capture);
     bool_f(vars, "wgc_pacing_smoothing", video.wgc_pacing_smoothing);
+    bool_f(vars, "lsfg_capture_framegen", video.lsfg.enabled);
+    int_between_f(vars, "lsfg_flow_scale", video.lsfg.flow_scale, {25, 100});
+    int_between_f(vars, "lsfg_max_multiplier", video.lsfg.max_multiplier, {2, 20});
     string_f(vars, "encoder", video.encoder);
     string_f(vars, "adapter_name", video.adapter_name);
     string_f(vars, "output_name", video.output_name);

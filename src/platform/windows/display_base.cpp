@@ -357,7 +357,7 @@ namespace platf::dxgi {
         display_refresh_rate.Denominator > 0 &&
         display_refresh_rate_rounded > 0;
 
-      if (valid_display_refresh_rate && adjusted_client_frame_rate > display_refresh_rate_rounded) {
+      if (valid_display_refresh_rate && adjusted_client_frame_rate > display_refresh_rate_rounded && !pacing_allow_above_refresh) {
         adjusted_client_frame_rate = display_refresh_rate_rounded;
       }
 

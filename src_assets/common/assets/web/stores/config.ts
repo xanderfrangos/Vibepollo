@@ -170,6 +170,9 @@ const defaultGroups = [
       fallback_mode: '1920x1080x60',
       lossless_scaling_path: '',
       lossless_scaling_legacy_auto_detect: false,
+      lsfg_capture_framegen: false,
+      lsfg_flow_scale: 100,
+      lsfg_max_multiplier: 4,
     },
   },
   {
