@@ -994,6 +994,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
     // Full-frame hash: catches even a single changed pixel, so a compositor
     // republish of unchanged content does not perturb the interval estimate.
+    /*
     const auto sig = impl.hasher.hash(impl.ctx.get(), impl.latest.srv.get());
     const bool distinct = !impl.hash_seen || sig != impl.last_hash;
     impl.hash_seen = true;
@@ -1001,7 +1002,13 @@ float4 ps_main(VSOut i) : SV_Target {
     if (!distinct) {
       return;
     }
+    */
 
+    // EXPERIMENT: hash-based dedup disabled. This function is only called when
+    // wait_for_frame()/have_new_frame already succeeded -- the identical signal
+    // the non-LSFG capture path trusts to push a frame to the encoder -- so we
+    // now treat every call as distinct with no content check, to A/B against
+    // the hashed behavior.
     impl.ctx->CopyResource(impl.sources[impl.frames_seen % 2].tex.get(), impl.latest.tex.get());
     if (impl.last_distinct_qpc != 0 && frame_qpc > impl.last_distinct_qpc) {
       const auto dt = platf::qpc_time_difference(static_cast<int64_t>(frame_qpc), static_cast<int64_t>(impl.last_distinct_qpc));
