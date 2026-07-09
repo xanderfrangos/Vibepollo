@@ -259,119 +259,6 @@ namespace platf::dxgi {
       return true;
     }
 
-    // Full-frame content hasher. WGC can republish the last frame at the
-    // compositor's refresh rate, so a genuinely new frame must be told apart
-    // from a duplicate. Each pixel adds a position-weighted value into one of
-    // 256 buckets on the GPU; only the 1 KiB bucket buffer is read back, and
-    // even a single changed pixel changes the signature.
-    constexpr char k_hash_shader_src[] = R"(
-Texture2D<float4> src : register(t0);
-RWStructuredBuffer<uint> buckets : register(u0);
-
-[numthreads(8, 8, 1)]
-void cs_hash(uint3 id : SV_DispatchThreadID) {
-    uint w, h;
-    src.GetDimensions(w, h);
-    if (id.x >= w || id.y >= h) return;
-    float4 c = src.Load(int3(id.x, id.y, 0));
-    uint4 q = uint4(c * 255.0 + 0.5);
-    uint packed = q.x | (q.y << 8) | (q.z << 16) | (q.w << 24);
-    uint lin = id.y * w + id.x;
-    uint hv = packed * 2654435761u + lin * 2246822519u;
-    InterlockedAdd(buckets[lin & 255u], hv);
-}
-)";
-
-    constexpr std::uint32_t k_hash_buckets = 256;
-
-    class frame_hasher_t {
-    public:
-      bool init(ID3D11Device *device, ext_t extent) {
-        std::vector<std::uint8_t> code;
-        if (!compile_shader(k_hash_shader_src, sizeof(k_hash_shader_src) - 1, "cs_hash", "cs_5_0", code)) {
-          return false;
-        }
-        auto status = device->CreateComputeShader(code.data(), code.size(), nullptr, _cs.put());
-        if (FAILED(status)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash shader [0x" << util::hex(status).to_string_view() << ']';
-          return false;
-        }
-
-        auto make_bucket_buf = [&](D3D11_USAGE usage, UINT bind, UINT cpu, bool init_zero, com_ptr<ID3D11Buffer> &buf) {
-          D3D11_BUFFER_DESC desc {};
-          desc.ByteWidth = k_hash_buckets * 4;
-          desc.Usage = usage;
-          desc.BindFlags = bind;
-          desc.CPUAccessFlags = cpu;
-          desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-          desc.StructureByteStride = 4;
-          std::array<std::uint32_t, k_hash_buckets> zeros {};
-          D3D11_SUBRESOURCE_DATA init {};
-          init.pSysMem = zeros.data();
-          return SUCCEEDED(device->CreateBuffer(&desc, init_zero ? &init : nullptr, buf.put()));
-        };
-
-        if (!make_bucket_buf(D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, true, _buf) ||
-            !make_bucket_buf(D3D11_USAGE_DEFAULT, 0, 0, true, _zero) ||
-            !make_bucket_buf(D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, false, _stage)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash buffers";
-          return false;
-        }
-
-        D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc {};
-        uav_desc.Format = DXGI_FORMAT_UNKNOWN;
-        uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-        uav_desc.Buffer.NumElements = k_hash_buckets;
-        status = device->CreateUnorderedAccessView(_buf.get(), &uav_desc, _uav.put());
-        if (FAILED(status)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash UAV [0x" << util::hex(status).to_string_view() << ']';
-          return false;
-        }
-
-        _groups = {(extent.w + 7) / 8, (extent.h + 7) / 8};
-        return true;
-      }
-
-      /// Hash a full-frame texture SRV. Runs on the caller's immediate context;
-      /// returns a 64-bit signature that differs on any pixel change.
-      std::uint64_t hash(ID3D11DeviceContext *ctx, ID3D11ShaderResourceView *src_srv) {
-        ctx->CopyResource(_buf.get(), _zero.get());  // reset buckets
-        ctx->CSSetShader(_cs.get(), nullptr, 0);
-        ID3D11ShaderResourceView *srv = src_srv;
-        ctx->CSSetShaderResources(0, 1, &srv);
-        ID3D11UnorderedAccessView *uav = _uav.get();
-        ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
-        ctx->Dispatch(_groups.w, _groups.h, 1);
-        ID3D11ShaderResourceView *null_srv = nullptr;
-        ID3D11UnorderedAccessView *null_uav = nullptr;
-        ctx->CSSetShaderResources(0, 1, &null_srv);
-        ctx->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
-        ctx->CSSetShader(nullptr, nullptr, 0);
-
-        ctx->CopyResource(_stage.get(), _buf.get());
-        D3D11_MAPPED_SUBRESOURCE mapped {};
-        if (FAILED(ctx->Map(_stage.get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-          return 0;
-        }
-        const auto *buckets = static_cast<const std::uint32_t *>(mapped.pData);
-        std::uint64_t sig = 0xcbf29ce484222325ull;  // FNV-1a over the buckets
-        for (std::uint32_t i = 0; i < k_hash_buckets; ++i) {
-          sig ^= buckets[i];
-          sig *= 0x100000001b3ull;
-        }
-        ctx->Unmap(_stage.get(), 0);
-        return sig;
-      }
-
-    private:
-      com_ptr<ID3D11ComputeShader> _cs;
-      com_ptr<ID3D11UnorderedAccessView> _uav;
-      com_ptr<ID3D11Buffer> _buf;
-      com_ptr<ID3D11Buffer> _zero;
-      com_ptr<ID3D11Buffer> _stage;
-      ext_t _groups {};
-    };
-
     // Fullscreen-triangle blit used to write the generated frame (RGBA8/RGBA16F
     // UAV output) into the encoder-shared capture texture, which may have a
     // different channel order (e.g. BGRA8) that CopyResource cannot bridge.
@@ -465,18 +352,18 @@ float4 ps_main(VSOut i) : SV_Target {
     std::vector<tex_t> outputs;
     std::vector<com_ptr<ID3D11Buffer>> cbp;  // per-pass constant buffers, updatable for adaptive
 
-    frame_hasher_t hasher;
     blitter_t blitter;
 
     // adaptive timing state
     std::size_t frames_seen = 0;  // count of DISTINCT source frames consumed
     bool has_capture = false;
-    std::uint64_t last_hash = 0;
-    bool hash_seen = false;
     std::uint64_t last_distinct_qpc = 0;
     std::chrono::steady_clock::time_point last_arrival {};
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
+    std::size_t consecutive_dirty_skips = 0;  // guards against an unreliable frame_dirty signal
+    std::uint64_t commit_calls = 0;  // diagnostics: total commit_capture() calls
+    std::uint64_t dirty_skip_total = 0;  // diagnostics: calls where frame_dirty was false
 
     ~impl_t() {
       if (lossless_module) {
@@ -964,7 +851,7 @@ float4 ps_main(VSOut i) : SV_Target {
       return nullptr;
     }
 
-    if (!impl.hasher.init(device, impl.extent) || !impl.blitter.init(device)) {
+    if (!impl.blitter.init(device)) {
       return nullptr;
     }
 
@@ -986,29 +873,50 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.has_capture = true;
   }
 
-  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc) {
+  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc, bool frame_dirty) {
     auto &impl = *_impl;
     if (!impl.has_capture) {
       return;
     }
 
-    // Full-frame hash: catches even a single changed pixel, so a compositor
-    // republish of unchanged content does not perturb the interval estimate.
-    /*
-    const auto sig = impl.hasher.hash(impl.ctx.get(), impl.latest.srv.get());
-    const bool distinct = !impl.hash_seen || sig != impl.last_hash;
-    impl.hash_seen = true;
-    impl.last_hash = sig;
-    if (!distinct) {
+    // TEMPORARY DIAGNOSTIC OVERRIDE: force every frame through as dirty, disabling
+    // the DirtyRegionMode skip below without removing it, to isolate whether a
+    // stale/partial deploy (not all LSFG binaries updated) was the actual cause of
+    // a prior "LSFG not interpolating" report, independent of DirtyRegionMode
+    // reliability. Flip back to false once confirmed either way.
+    constexpr bool kForceDirtyBypass = true;
+    if (kForceDirtyBypass) {
+      frame_dirty = true;
+    }
+
+    // Skip source rotation and the interval estimate for a frame WGC reported as a
+    // compositor-only republish (DirtyRegionMode, Windows 11 24H2+): otherwise a static
+    // screen or idle recomposite would perturb src_interval and mistime the adaptive
+    // phase. On older Windows builds frame_dirty is always true (unchanged behavior).
+    //
+    // Bounded to one skip in a row: DirtyRegionMode is compositor recomposition
+    // tracking, which is unverified on the virtual/headless displays this project
+    // primarily targets. If it ever misreports every frame as non-dirty, an
+    // unbounded skip would permanently starve frames_seen below 2 and silently
+    // disable generation entirely (pass-through only, higher output fps but no
+    // interpolation) -- far worse than occasionally trusting a stale interval.
+    constexpr std::size_t kMaxConsecutiveDirtySkips = 1;
+    ++impl.commit_calls;
+    if (!frame_dirty) {
+      ++impl.dirty_skip_total;
+    }
+    if (impl.commit_calls % 300 == 0) {
+      BOOST_LOG(info) << "LSFG: commit_capture diagnostics: calls=" << impl.commit_calls
+                      << " dirty_skips=" << impl.dirty_skip_total
+                      << " (" << (100.0 * static_cast<double>(impl.dirty_skip_total) / static_cast<double>(impl.commit_calls)) << "%)"
+                      << " frames_seen=" << impl.frames_seen;
+    }
+    if (!frame_dirty && impl.consecutive_dirty_skips < kMaxConsecutiveDirtySkips) {
+      ++impl.consecutive_dirty_skips;
       return;
     }
-    */
+    impl.consecutive_dirty_skips = 0;
 
-    // EXPERIMENT: hash-based dedup disabled. This function is only called when
-    // wait_for_frame()/have_new_frame already succeeded -- the identical signal
-    // the non-LSFG capture path trusts to push a frame to the encoder -- so we
-    // now treat every call as distinct with no content check, to A/B against
-    // the hashed behavior.
     impl.ctx->CopyResource(impl.sources[impl.frames_seen % 2].tex.get(), impl.latest.tex.get());
     if (impl.last_distinct_qpc != 0 && frame_qpc > impl.last_distinct_qpc) {
       const auto dt = platf::qpc_time_difference(static_cast<int64_t>(frame_qpc), static_cast<int64_t>(impl.last_distinct_qpc));

@@ -44,7 +44,9 @@
 #include <Windows.h>
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>  // For IVectorView<RectInt32> (Direct3D11CaptureFrame::DirtyRegions())
 #include <winrt/Windows.Foundation.Metadata.h>  // For ApiInformation
+#include <winrt/Windows.Graphics.h>  // For RectInt32 (Direct3D11CaptureFrame::DirtyRegions())
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 
@@ -937,6 +939,7 @@ public:
     _frame_metadata->sequence = 0;
     _frame_metadata->frame_id = 0;
     _frame_metadata->frame_qpc = 0;
+    _frame_metadata->dirty = 1;
     return true;
   }
 
@@ -970,13 +973,14 @@ public:
     return data;
   }
 
-  void publish_frame_metadata(uint64_t frame_qpc) {
+  void publish_frame_metadata(uint64_t frame_qpc, bool dirty) {
     if (!_frame_metadata) {
       return;
     }
 
     InterlockedIncrement64(&_frame_metadata->sequence);
     InterlockedExchange64(&_frame_metadata->frame_qpc, static_cast<LONG64>(frame_qpc));
+    InterlockedExchange64(&_frame_metadata->dirty, dirty ? 1 : 0);
     InterlockedIncrement64(&_frame_metadata->frame_id);
     InterlockedIncrement64(&_frame_metadata->sequence);
   }
@@ -1053,6 +1057,7 @@ private:
     winrt::com_ptr<ID3D11Texture2D> texture;
     size_t scratch_index = 0;
     uint64_t frame_qpc = 0;
+    bool dirty = true;
   };
 
   static constexpr auto WGC_DIAGNOSTICS_LOG_INTERVAL = std::chrono::seconds(15);
@@ -1108,6 +1113,8 @@ private:
   DXGI_FORMAT _capture_format = DXGI_FORMAT_UNKNOWN;  ///< DXGI format for captured frames
   UINT _height = 0;  ///< Capture height in pixels
   UINT _width = 0;  ///< Capture width in pixels
+  bool _dirty_region_supported = false;  ///< True when GraphicsCaptureSession.DirtyRegionMode(ReportOnly) was set successfully
+  bool _seen_any_frame = false;  ///< True after the first frame has been processed (bootstrap is always reported dirty)
 
 public:
   /**
@@ -1344,7 +1351,8 @@ public:
         // Get frame timing information from the WGC frame
         uint64_t frame_qpc = frame.SystemRelativeTime().count();
         record_frame_arrival(drained_frames);
-        queue_frame_for_delivery(std::move(frame), surface, frame_qpc);
+        const bool dirty = compute_frame_dirty(frame);
+        queue_frame_for_delivery(std::move(frame), surface, frame_qpc, dirty);
       } catch (const winrt::hresult_error &ex) {
         // Log error
         BOOST_LOG(error) << "WinRT error in frame processing: " << ex.code() << " - " << winrt::to_string(ex.message());
@@ -1362,6 +1370,40 @@ private:
 
   bool allow_buffer_decrease() const {
     return (g_config.flags & platf::dxgi::WGC_IPC_FLAG_ALLOW_BUFFER_DECREASE) != 0;
+  }
+
+  /**
+   * @brief Determines whether a delivered frame represents a genuine content change.
+   *
+   * Without DirtyRegionMode support (pre-24H2), every frame is reported dirty, matching
+   * prior behavior. With it enabled, an empty DirtyRegions() list means the compositor
+   * republished the same pixels (e.g. a static desktop); the very first frame is always
+   * reported dirty so downstream consumers have something to bootstrap from.
+   */
+  bool compute_frame_dirty(const Direct3D11CaptureFrame &frame) {
+    const bool is_first_frame = !_seen_any_frame;
+    _seen_any_frame = true;
+
+    if (!_dirty_region_supported) {
+      return true;
+    }
+
+    try {
+      // IVectorView<RectInt32>::Size() hits a GCC/C++-WinRT auto-deduction-order bug
+      // (mingw); iterate instead of calling Size() to sidestep it.
+      bool has_dirty_content = false;
+      for (const auto &_ : frame.DirtyRegions()) {
+        (void) _;
+        has_dirty_content = true;
+        break;
+      }
+      return is_first_frame || has_dirty_content;
+    } catch (const winrt::hresult_error &ex) {
+      BOOST_LOG(warning) << "frame.DirtyRegions() failed (treating frame as dirty): " << ex.code() << " - " << winrt::to_string(ex.message());
+      return true;
+    } catch (...) {
+      return true;
+    }
   }
 
   static int64_t steady_time_us(const std::chrono::steady_clock::time_point &time) {
@@ -1627,7 +1669,7 @@ private:
     }
   }
 
-  bool enqueue_scratch_texture(size_t index, uint64_t frame_qpc) {
+  bool enqueue_scratch_texture(size_t index, uint64_t frame_qpc, bool dirty) {
     std::lock_guard lock(_delivery_mutex);
 
     if (index >= _scratch_textures.size() || !_scratch_textures[index].texture) {
@@ -1657,7 +1699,8 @@ private:
     _pending_delivery_frame = delivery_frame_t {
       .texture = _scratch_textures[index].texture,
       .scratch_index = index,
-      .frame_qpc = frame_qpc
+      .frame_qpc = frame_qpc,
+      .dirty = dirty
     };
     return true;
   }
@@ -1667,8 +1710,9 @@ private:
    * @param frame The WGC frame object; it is released before the shared IPC mutex can block.
    * @param surface The captured D3D11 surface.
    * @param frame_qpc The QPC timestamp from when the frame was captured.
+   * @param dirty Whether this frame represents a genuine content change (see compute_frame_dirty()).
    */
-  void queue_frame_for_delivery(Direct3D11CaptureFrame frame, winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DSurface surface, uint64_t frame_qpc) {
+  void queue_frame_for_delivery(Direct3D11CaptureFrame frame, winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DSurface surface, uint64_t frame_qpc, bool dirty) {
     if (!_deps) {
       return;
     }
@@ -1707,7 +1751,7 @@ private:
     // the main process' shared keyed mutex without starving WGC FrameArrived.
     frame = nullptr;
 
-    if (!enqueue_scratch_texture(*scratch_index, frame_qpc)) {
+    if (!enqueue_scratch_texture(*scratch_index, frame_qpc, dirty)) {
       return;
     }
     _delivery_cv.notify_one();
@@ -1754,7 +1798,7 @@ private:
       }
 
       try {
-        copy_frame_to_shared_texture(frame->texture, frame->frame_qpc);
+        copy_frame_to_shared_texture(frame->texture, frame->frame_qpc, frame->dirty);
       } catch (const winrt::hresult_error &ex) {
         BOOST_LOG(error) << "WinRT error in WGC delivery thread: " << ex.code() << " - " << winrt::to_string(ex.message());
       } catch (...) {
@@ -1775,8 +1819,9 @@ private:
    * @brief Copies the captured texture to the shared texture and signals the main process.
    * @param frame_tex The captured D3D11 texture.
    * @param frame_qpc The QPC timestamp from when the frame was captured.
+   * @param dirty Whether this frame represents a genuine content change (see compute_frame_dirty()).
    */
-  void copy_frame_to_shared_texture(const winrt::com_ptr<ID3D11Texture2D> &frame_tex, uint64_t frame_qpc) {
+  void copy_frame_to_shared_texture(const winrt::com_ptr<ID3D11Texture2D> &frame_tex, uint64_t frame_qpc, bool dirty) {
     if (!_deps || !frame_tex) {
       return;
     }
@@ -1824,7 +1869,7 @@ private:
 
     // Publish the metadata while still holding the shared keyed mutex so the
     // consumer can never lock a newer texture while reading an older frame id.
-    _deps->resource_manager.publish_frame_metadata(frame_qpc);
+    _deps->resource_manager.publish_frame_metadata(frame_qpc, dirty);
 
     const HRESULT rel_hr = _deps->resource_manager.get_keyed_mutex()->ReleaseSync(0);
     release_shared_mutex.disable();
@@ -1953,6 +1998,23 @@ public:
       } else {
         BOOST_LOG(info) << "WGC MinUpdateInterval left at system default";
       }
+    }
+
+    // DirtyRegionMode lets each delivered frame report whether the compositor actually
+    // changed content or just republished the same pixels (e.g. an idle desktop). Only
+    // available on Windows 11 24H2+; older builds keep every frame flagged dirty below.
+    if (winrt::Windows::Foundation::Metadata::ApiInformation::IsPropertyPresent(L"Windows.Graphics.Capture.GraphicsCaptureSession", L"DirtyRegionMode")) {
+      try {
+        _capture_session.DirtyRegionMode(GraphicsCaptureDirtyRegionMode::ReportOnly);
+        _dirty_region_supported = true;
+        BOOST_LOG(info) << "WGC DirtyRegionMode set to ReportOnly";
+      } catch (const winrt::hresult_error &ex) {
+        BOOST_LOG(warning) << "DirtyRegionMode(ReportOnly) failed (continuing without dirty-region tracking): " << ex.code() << " - " << winrt::to_string(ex.message());
+      } catch (...) {
+        BOOST_LOG(warning) << "DirtyRegionMode(ReportOnly) threw an unknown exception (continuing without dirty-region tracking)";
+      }
+    } else {
+      BOOST_LOG(info) << "WGC DirtyRegionMode unavailable on this OS build (needs Windows 11 24H2+); every delivered frame will be treated as distinct";
     }
 
     return true;

@@ -71,9 +71,11 @@ namespace platf::dxgi {
      * @param timeout Maximum time to wait for a frame.
      * @param gpu_tex_out Output ComPtr for the GPU texture (set on success).
      * @param frame_qpc_out Output for the frame QPC timestamp (`0` if unavailable).
+     * @param frame_dirty_out Optional. When non-null, set to whether WGC reported this frame as a
+     *   genuine content change (see DirtyRegionMode). Always `true` on OS builds that don't support it.
      * @return Capture result enum indicating success, timeout, or failure.
      */
-    capture_e acquire(std::chrono::milliseconds timeout, winrt::com_ptr<ID3D11Texture2D> &gpu_tex_out, uint64_t &frame_qpc_out);
+    capture_e acquire(std::chrono::milliseconds timeout, winrt::com_ptr<ID3D11Texture2D> &gpu_tex_out, uint64_t &frame_qpc_out, bool *frame_dirty_out = nullptr);
 
     /**
      * @brief Wait for a new frame event without taking the shared keyed mutex.
@@ -86,9 +88,11 @@ namespace platf::dxgi {
      * @brief Lock the latest shared frame after wait_for_frame() succeeds.
      * @param gpu_tex_out Output ComPtr for the GPU texture (set on success).
      * @param frame_qpc_out Output for the frame QPC timestamp (`0` if unavailable).
+     * @param frame_dirty_out Optional. When non-null, set to whether WGC reported this frame as a
+     *   genuine content change (see DirtyRegionMode). Always `true` on OS builds that don't support it.
      * @return Capture result enum indicating success, timeout, or failure.
      */
-    capture_e lock_frame(winrt::com_ptr<ID3D11Texture2D> &gpu_tex_out, uint64_t &frame_qpc_out);
+    capture_e lock_frame(winrt::com_ptr<ID3D11Texture2D> &gpu_tex_out, uint64_t &frame_qpc_out, bool *frame_dirty_out = nullptr);
 
     /**
      * @brief Release the keyed mutex.

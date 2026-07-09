@@ -79,11 +79,14 @@ namespace platf::dxgi {
     void stage_capture(ID3D11Texture2D *src);
 
     /**
-     * @brief Hash + dedup the staged frame; on new content rotate sources and run the flow pre-pass.
+     * @brief On new content, rotate sources and run the optical-flow pre-pass.
      * Call after the producer mutex has been released.
      * @param frame_qpc QPC timestamp of the captured frame (0 if unknown).
+     * @param frame_dirty Whether the capture backend reported this frame as a genuine content
+     *   change (WGC DirtyRegionMode) rather than a compositor-only republish. Always true when
+     *   the backend can't report it, which preserves the prior always-distinct behavior.
      */
-    void commit_capture(std::uint64_t frame_qpc);
+    void commit_capture(std::uint64_t frame_qpc, bool frame_dirty);
 
     /**
      * @brief Decide what the current pacing slot should show.
