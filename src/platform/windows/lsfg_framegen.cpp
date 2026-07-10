@@ -347,8 +347,7 @@ float4 ps_main(VSOut i) : SV_Target {
     // Real-frame ping-pong pool: distinct frame N lands in sources[N % pool_size].
     std::vector<tex_t> sources;
     std::size_t pool_size = 2;
-    // render-owned copy of the latest captured frame (hashed for dedup, and
-    // shown during pass-through so the stream never freezes on stale content)
+    // render-owned copy of the latest captured frame, shown during pass-through
     tex_t latest;
 
     std::vector<step_t> prepass;
@@ -369,10 +368,8 @@ float4 ps_main(VSOut i) : SV_Target {
     std::uint64_t commit_calls = 0;  // diagnostics: total commit_capture() calls
     std::uint64_t dirty_skip_total = 0;  // diagnostics: calls where frame_dirty was false
 
-    // TEMPORARY diagnostics (added 2026-07-09): pacing-quality instrumentation for
-    // the floor-slot bucketing / QPC-anchoring fixes in want_generated(). Logged
-    // periodically by record_phase_tick(); safe to remove once real-hardware pacing
-    // is confirmed good.
+    // TEMPORARY pacing-quality instrumentation, logged periodically by
+    // record_phase_tick(); safe to remove once pacing is confirmed good.
     bool diag_have_last_anchor = false;
     std::chrono::steady_clock::time_point diag_last_anchor {};
     std::uint64_t diag_ticks_total = 0;  // every want_generated() call that reached slot logic
@@ -390,17 +387,14 @@ float4 ps_main(VSOut i) : SV_Target {
     bool diag_have_last_log = false;
     std::chrono::steady_clock::time_point diag_last_log {};
 
-    // True whenever latest_texture() may return a real arrival the caller hasn't shown
-    // yet as a genuine pass-through -- as opposed to a generated/extrapolated
-    // approximation of it. Lets the caller settle on the true final frame once
-    // generation stops being due, instead of leaving the last generated guess on
-    // screen forever. See mark_passthrough_shown().
+    // Set on each real arrival, cleared once shown as a genuine pass-through: lets the
+    // caller settle on the true final frame once generation stops being due, instead of
+    // leaving the last generated approximation on screen forever. See mark_passthrough_shown().
     bool passthrough_dirty = true;
 
-    // Optical-flow pre-pass output (mipmaps -> alpha0/alpha1 -> beta0/beta1). a1_out/
-    // b1_imgs are a CONTINUOUSLY rolling temporal history the shaders expect fed one
-    // real arrival at a time with no gaps (alpha1's per-level slot rotation, beta0's
-    // 3-way temporal blend). gamma/delta/generate read them directly.
+    // Optical-flow pre-pass output. a1_out/b1_imgs are a rolling temporal history the
+    // shaders expect fed one real arrival at a time with no gaps (alpha1's per-level slot
+    // rotation, beta0's 3-way temporal blend).
     std::array<ext_t, 7> a1_extent {};
     std::array<std::vector<std::vector<tex_t>>, 7> a1_out;
     std::vector<tex_t> b1_imgs;
@@ -525,16 +519,10 @@ float4 ps_main(VSOut i) : SV_Target {
     const std::size_t count = 1;
     const ext_t source_extent = extent;
 
-    // Performance mode doesn't just swap shader bytecode (the id+23 remap above):
-    // the perf shaders declare HALF the per-group texture bindings, so the pipeline
-    // structure must shrink to match -- lsfg-vk models this as `m = perf ? 1 : 2`
-    // multiplying alpha0's temp/output groups, alpha1's per-slot outputs, gamma1's
-    // and delta1's temp rings, and delta0's second output group (plus delta1's
-    // second half binding only the first m entries of its rings). Feeding perf
-    // bytecode quality-sized groups misaligns every SRV/UAV slot after the first
-    // few and silently produces garbage flow (looks like interpolation not applying
-    // at all). Group counts NOT multiplied by m (beta0/beta1 temps, gamma0/delta0
-    // first outputs, the R8 pyramids) are fixed in lsfg-vk for both modes.
+    // Perf-mode shaders declare HALF the per-group texture bindings, so the groups
+    // scaled by `m` below (matching lsfg-vk's `m = perf ? 1 : 2`) must shrink to
+    // match; feeding them quality-sized groups misaligns every SRV/UAV slot and
+    // produces garbage flow. Groups left at fixed counts match lsfg-vk for both modes.
     const std::size_t m = options.performance_mode ? 1 : 2;
     const ext_t flow_extent {
       static_cast<std::uint32_t>(static_cast<float>(source_extent.w) / inv_flow),
@@ -644,7 +632,7 @@ float4 ps_main(VSOut i) : SV_Target {
       prepass.push_back(std::move(step));
     }
 
-    // --- beta1: blur chain -> 6 R8 pyramid levels --- (b1_imgs is an impl_t member; see a1_out above)
+    // --- beta1: blur chain -> 6 R8 pyramid levels ---
     auto b1_t0 = b.texes(2, be, rgba8);
     auto b1_t1 = b.texes(2, be, rgba8);
     for (std::uint32_t i = 0; i < 6; ++i) {
@@ -664,7 +652,6 @@ float4 ps_main(VSOut i) : SV_Target {
     // --- per generated frame: gamma / delta pyramids + generate ---
     for (std::size_t p = 0; p < count; ++p) {
       ID3D11Buffer *cb = cbp[p].get();
-      // Reads the live, continuously-rolling a1_out/b1_imgs directly.
       auto &gen_a1_out = a1_out;
       auto &gen_b1_imgs = b1_imgs;
       std::vector<step_t> steps;
@@ -794,14 +781,11 @@ float4 ps_main(VSOut i) : SV_Target {
         d1_img1.push_back(std::move(img1));
       }
 
-      // generate: warp prev+curr with the flow pyramids into the output.
-      // RGBA16F for HDR streams; RGBA8 (mandatory UAV store support) otherwise.
+      // generate: RGBA16F for HDR streams, RGBA8 otherwise (mandatory UAV store support).
       auto out = b.tex(source_extent, hdr ? rgba16f : rgba8);
       {
         step_t step;
         for (std::size_t v = 0; v < pool_size; ++v) {
-          // variant v: curr = sources[v] (the newest arrival), prev = the slot
-          // immediately behind it in the ping-pong pair.
           const tex_t *s1 = &sources[v];
           const tex_t *s0 = &sources[(v + pool_size - 1) % pool_size];
           step.variants.push_back({b.disp(
@@ -958,27 +942,20 @@ float4 ps_main(VSOut i) : SV_Target {
       return;
     }
 
-    // TEMPORARY DIAGNOSTIC OVERRIDE: force every frame through as dirty, disabling
-    // the DirtyRegionMode skip below without removing it, to isolate whether a
-    // stale/partial deploy (not all LSFG binaries updated) was the actual cause of
-    // a prior "LSFG not interpolating" report, independent of DirtyRegionMode
-    // reliability. Flip back to false once confirmed either way.
+    // TEMPORARY: force every frame dirty, disabling the DirtyRegionMode skip below
+    // (without removing it) while its reliability is still being confirmed.
     constexpr bool kForceDirtyBypass = true;
     if (kForceDirtyBypass) {
       frame_dirty = true;
     }
 
-    // Skip source rotation and the interval estimate for a frame WGC reported as a
-    // compositor-only republish (DirtyRegionMode, Windows 11 24H2+): otherwise a static
-    // screen or idle recomposite would perturb src_interval and mistime the adaptive
-    // phase. On older Windows builds frame_dirty is always true (unchanged behavior).
+    // Skip source rotation and the interval estimate for a compositor-only republish
+    // (DirtyRegionMode, Win11 24H2+), which would otherwise perturb src_interval and
+    // mistime the phase. Older Windows always reports dirty.
     //
-    // Bounded to one skip in a row: DirtyRegionMode is compositor recomposition
-    // tracking, which is unverified on the virtual/headless displays this project
-    // primarily targets. If it ever misreports every frame as non-dirty, an
-    // unbounded skip would permanently starve frames_seen below 2 and silently
-    // disable generation entirely (pass-through only, higher output fps but no
-    // interpolation) -- far worse than occasionally trusting a stale interval.
+    // Bounded to one skip in a row: DirtyRegionMode is unverified on the virtual/headless
+    // displays this project targets, and misreporting every frame non-dirty would stall
+    // frames_seen below 2 and silently disable generation entirely.
     constexpr std::size_t kMaxConsecutiveDirtySkips = 1;
     ++impl.commit_calls;
     if (!frame_dirty) {
@@ -1010,24 +987,15 @@ float4 ps_main(VSOut i) : SV_Target {
       impl.last_distinct_qpc = frame_qpc;
     }
 
-    // Run the flow pre-pass immediately for the newest arrival and reset the
-    // wall-clock phase anchor.
-    //
-    // Anchor to the frame's own QPC timestamp (the compositor's capture clock),
-    // not steady_clock::now() at commit time: WGC delivery jitter, the up-to-~6ms
-    // effective_wgc_timeout() blocking wait, and IPC handoff all add variable delay
-    // between when the frame was actually captured and when commit_capture() runs
-    // for it. Re-deriving the phase-slot grid from that jittery instant every
-    // interval can misclassify a metronome tick into the wrong slot; QPC is the
-    // same clock WGC stamped the frame with, so this locks the grid to the
-    // source's true cadence instead. Falls back to steady_clock::now() if the
-    // backend couldn't supply a QPC timestamp.
+    // Anchor the phase-slot grid to the frame's own QPC capture timestamp, not
+    // now(): WGC delivery jitter, the effective_wgc_timeout() wait, and IPC handoff
+    // add variable delay between capture and this call, which would smear the grid
+    // and misclassify pacing ticks. Falls back to now() if QPC is unavailable.
     impl.last_arrival = frame_qpc != 0
       ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(frame_qpc))
       : std::chrono::steady_clock::now();
     if (impl.frames_seen > 0) {
-      // compute optical flow once per distinct frame; generation tails reuse it
-      // for every phase requested until the next distinct frame arrives
+      // one flow pre-pass per distinct frame; generation tails reuse it every phase
       impl.run_steps(impl.prepass, impl.frames_seen);
     }
     ++impl.frames_seen;
@@ -1047,27 +1015,17 @@ float4 ps_main(VSOut i) : SV_Target {
       return false;
     }
 
-    // Cap how far the phase stretches: never interpolate as though the gap
-    // since the last real frame were more than `max_multiplier` present
-    // intervals. Without this a stalled source would extrapolate across the
-    // entire gap. Past the capped interval the latest real frame is held.
+    // Cap the extrapolated gap at `max_multiplier` intervals so a stalled source
+    // holds the latest real frame instead of extrapolating across the whole gap.
     //
-    // NOTE: this must stay wall-clock based, not pacing-tick-counted. The capture
-    // loop's frame-pacing "metronome" (display_base.cpp) can call snapshot() --
-    // and therefore this function -- twice in a single loop iteration when a
-    // pacing group busts (0ms continuation attempt fails, falls through to a
-    // fresh 200ms snapshot immediately, no sleep in between). A tick counter
-    // desyncs from real elapsed time every time that happens, which is routine
-    // per that code's own bust-mix diagnostics -- tried this 2026-07-09, it
-    // produced visibly worse judder ("rewinding") than the wall-clock version.
+    // Stays wall-clock based, never tick-counted: the capture loop can call this
+    // twice per iteration on a pacing bust, which desyncs a call counter from real
+    // time. Tried tick-counting and reverted (visibly worse "rewinding" judder).
     const auto capped_interval = std::min(impl.src_interval, impl.frame_dur * impl.options.max_multiplier);
 
-    // How many present slots fit in the (capped) source interval. src_interval is a
-    // noisy EMA of real inter-frame gaps (game frame-time variance, WGC delivery
-    // jitter); rounding it to a whole tick count here, instead of dividing by it
-    // directly below, is what keeps the bucket count itself from jittering tick to
-    // tick whenever the source:target ratio sits close to a small integer (e.g. 60fps
-    // source into a 116fps stream, ratio ~1.93).
+    // Slots per interval, rounded to a whole tick count (not divided by src_interval
+    // directly) so the noisy EMA can't make the bucket count jitter tick-to-tick at
+    // ratios near a small integer (e.g. 60fps into 116fps).
     std::int64_t steps = 1;
     if (const auto frame_dur_ns = impl.frame_dur.count(); frame_dur_ns > 0) {
       steps = std::max<std::int64_t>(1, (capped_interval.count() + frame_dur_ns / 2) / frame_dur_ns);
@@ -1077,19 +1035,11 @@ float4 ps_main(VSOut i) : SV_Target {
     const auto elapsed = std::chrono::duration<float>(now - impl.last_arrival).count();
     const auto frame_dur_s = std::max(std::chrono::duration<float>(impl.frame_dur).count(), 1e-4f);
 
-    // Bucket by tick number within the interval (floor(elapsed / frame_dur) + 1) --
-    // NOT by rounding a continuous fraction (t * steps) to the nearest slot. Ticks
-    // land ~frame_dur apart by construction (frame_dur IS the pacing metronome's
-    // grid), so consecutive ticks fall in consecutive integer buckets under flooring.
-    // Round-to-nearest instead has its boundaries at HALF a slot width; a small shift
-    // in the tick-vs-arrival offset (ordinary drift, since target fps is essentially
-    // never an integer multiple of source fps) can flip two consecutive ticks into
-    // the SAME rounded bucket, which duplicates one warp phase and skips the other
-    // slot entirely for that interval -- sometimes the final real-frame slot, which
-    // is exactly the kind of miss that makes generation look worse, not better, as
-    // source fps rises toward target (fewer, wider buckets -- lsfg-vk instead avoids
-    // this class of problem altogether by presenting a FIXED frame count per real
-    // arrival, decoupled from any independent tick clock).
+    // Bucket by tick number (floor), not by rounding a continuous fraction to the
+    // nearest slot: ticks land ~frame_dur apart, so flooring puts consecutive ticks
+    // in consecutive buckets, whereas round-to-nearest (boundaries at half a slot)
+    // can collapse two ticks into the same bucket on ordinary drift -- duplicating
+    // one warp phase and dropping another slot, sometimes the real-frame slot.
     long slot = static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1;
     slot = std::clamp<long>(slot, 1, steps_i);
     impl.record_phase_tick(now, impl.last_arrival, elapsed, slot, steps_i);
@@ -1107,7 +1057,6 @@ float4 ps_main(VSOut i) : SV_Target {
       return false;
     }
 
-    // adaptive mode: rewrite the interpolation phase, then run the tail
     const auto data = make_cb_data(phase, impl.inv_flow, impl.hdr);
     impl.ctx->UpdateSubresource(impl.cbp[0].get(), 0, nullptr, &data, 0, 0);
 
@@ -1123,11 +1072,8 @@ float4 ps_main(VSOut i) : SV_Target {
     }
   }
 
-  // TEMPORARY diagnostics (added 2026-07-09): see the diag_* member docs above.
-  // Called from want_generated() once per tick, right after the slot for that tick
-  // is decided. `anchor` is impl.last_arrival -- comparing it to the previous call's
-  // anchor is how "a new source interval started" is detected, since it's only ever
-  // reassigned on a genuine new arrival.
+  // TEMPORARY pacing instrumentation. A change in `anchor` (== last_arrival, only
+  // reassigned on a real arrival) marks the boundary of a new source interval.
   void lsfg_framegen_t::impl_t::record_phase_tick(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point anchor, float elapsed_s, long slot, long steps_i) {
     if (diag_have_last_anchor && anchor != diag_last_anchor) {
       ++diag_intervals_closed;

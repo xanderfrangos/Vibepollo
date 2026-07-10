@@ -287,12 +287,9 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Hot-apply lsfg_flow_scale/lsfg_performance_mode mid-stream: both are baked
-      // into the GPU pipeline's fixed-size textures and shader/dispatch selection at
-      // create() time, so a change tears down and rebuilds _lsfg in place below (no
-      // capture reinit needed for these -- unlike lsfg_capture_framegen itself,
-      // handled earlier since it also affects pacing).
-      // lsfg_max_multiplier isn't baked into anything; update it live, no rebuild.
+      // Hot-apply mid-stream: flow_scale/performance_mode are baked into the pipeline
+      // at create() time, so a change rebuilds _lsfg in place below (no capture reinit).
+      // max_multiplier isn't baked in -- update it live with no rebuild.
       if (_lsfg) {
         const auto desired_flow_scale = std::clamp(config::video.lsfg.flow_scale, 25, 100) / 100.0f;
         const auto desired_performance_mode = config::video.lsfg.performance_mode;
@@ -445,25 +442,14 @@ namespace platf::dxgi {
       return capture_e::timeout;
     }
 
-    // Pick what this pacing slot shows: an interpolated frame at the phase the
-    // clock lands on, or the latest captured frame when the source is already
-    // near the target rate (or the phase has run past the newest real frame).
     float phase = 0.0f;
     const bool generate = _lsfg->want_generated(std::chrono::steady_clock::now(), phase);
 
-    // Nothing genuinely new to show this tick (no fresh source frame, no generated
-    // frame due yet, AND the true captured frame has already been shown as itself):
-    // the requested stream FPS is a ceiling, not a floor -- don't push a duplicate
-    // of the last frame just to hit it. no_new_content (unlike timeout) tells the
-    // pacing loop this is routine, expected pacing slack, not a stall needing
-    // recovery. Skips the image-pool pull/keyed-mutex/GPU-copy work below entirely,
-    // since it would just be discarded.
-    //
-    // The passthrough_pending check matters even when !generate: if the last few
-    // ticks generated frames (extrapolating motion that has since stopped), the
-    // encoder's last frame is an approximation, not the true final content -- push
-    // the real frame once to settle on it before going idle, instead of leaving a
-    // generated/interpolated guess stuck on screen forever.
+    // Requested FPS is a ceiling, not a floor: with nothing new to show, return
+    // no_new_content (routine pacing slack, distinct from a timeout stall) rather
+    // than pushing a duplicate, skipping the image-pool/mutex/copy work below.
+    // passthrough_pending still forces one push after a run of generated frames so
+    // the client settles on the true captured frame instead of a stale extrapolation.
     const bool passthrough_pending = _lsfg->has_new_passthrough_frame();
     if (!have_new_frame && !generate && !passthrough_pending) {
       return capture_e::no_new_content;

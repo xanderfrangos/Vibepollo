@@ -30,9 +30,7 @@ namespace platf::dxgi {
    *
    * Owns the ping-pong source frames, the optical-flow pre-pass and one
    * reusable generation tail driven by a dynamic interpolation phase
-   * (LSFG "adaptive" mode). Captured frames are deduplicated with a
-   * full-frame content hash so a compositor republish does not disturb
-   * the source-interval estimate.
+   * (LSFG "adaptive" mode).
    *
    * All methods must be called from the capture thread that owns the
    * supplied immediate context.
@@ -95,11 +93,9 @@ namespace platf::dxgi {
     /**
      * @brief Decide what the current pacing slot should show.
      *
-     * Must stay wall-clock based, not pacing-tick-counted: the capture loop's
-     * frame-pacing "metronome" (display_base.cpp) can call this twice in a single
-     * loop iteration when a pacing group busts, so counting calls as a proxy for
-     * elapsed time desyncs from reality. Wall-clock elapsed/interval division is
-     * self-correcting no matter how many times or how irregularly this is called.
+     * Must stay wall-clock based, not pacing-tick-counted: the capture loop can
+     * call this twice in one iteration when a pacing group busts, so counting
+     * calls as a proxy for elapsed time desyncs from reality (tried and reverted).
      * @param now Current steady-clock time.
      * @param phase_out Set to the interpolation phase in (0,1) when returning true.
      * @return true when a generated frame should be produced at @p phase_out;
