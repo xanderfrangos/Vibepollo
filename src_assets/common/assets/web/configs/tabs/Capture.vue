@@ -541,6 +541,18 @@ const shouldShowSoftware = computed(() => showAll() || props.currentTab === 'sw'
               setting-key="lsfg_max_multiplier"
               v-model="config.lsfg_max_multiplier"
             />
+            <ConfigFieldRenderer
+              setting-key="lsfg_queue_frames"
+              v-model="config.lsfg_queue_frames"
+            />
+            <ConfigFieldRenderer
+              setting-key="lsfg_performance_mode"
+              v-model="config.lsfg_performance_mode"
+            />
+            <ConfigFieldRenderer
+              setting-key="lsfg_target_fps_cutoff"
+              v-model="config.lsfg_target_fps_cutoff"
+            />
           </template>
         </div>
 

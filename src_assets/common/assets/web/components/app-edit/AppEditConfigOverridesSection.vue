@@ -914,6 +914,9 @@ const ALLOWED_OVERRIDE_KEYS = new Set<string>([
   'lsfg_capture_framegen',
   'lsfg_flow_scale',
   'lsfg_max_multiplier',
+  'lsfg_queue_frames',
+  'lsfg_performance_mode',
+  'lsfg_target_fps_cutoff',
 
   // Codec / capture negotiation
   'fec_percentage',

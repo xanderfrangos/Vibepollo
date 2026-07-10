@@ -221,6 +221,20 @@ namespace platf::dxgi {
       return capture_e::reinit;
     }
 
+    // Hot-apply lsfg_capture_framegen toggling mid-stream. pacing_allow_above_refresh
+    // feeds display_base_t::capture()'s client_frame_rate_adjusted, which is computed
+    // once at the top of that function's long-running loop -- flipping the flag alone
+    // wouldn't change the active pacing ceiling until the loop restarts, so request a
+    // reinit, the same mechanism video.cpp already uses for other mid-stream settings
+    // changes (e.g. runtime bitrate). Other lsfg_* settings don't touch pacing and are
+    // hot-applied below without a reinit.
+    if (const bool lsfg_enabled_now = config::video.lsfg.enabled; lsfg_enabled_now != _lsfg_requested) {
+      BOOST_LOG(info) << "LSFG: capture frame generation " << (lsfg_enabled_now ? "enabled" : "disabled") << " mid-stream; requesting capture reinit";
+      _lsfg_requested = lsfg_enabled_now;
+      pacing_allow_above_refresh = lsfg_enabled_now;
+      return capture_e::reinit;
+    }
+
     const bool lsfg_wanted = _lsfg_requested && !_lsfg_failed;
     timeout = effective_wgc_timeout(timeout, _config.framerate, lsfg_wanted);
 
@@ -273,18 +287,44 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Create the LSFG interpolator once the capture format is known.
+      // Hot-apply lsfg_flow_scale/lsfg_queue_frames/lsfg_performance_mode mid-stream:
+      // all three are baked into the GPU pipeline's fixed-size textures and shader/
+      // dispatch selection at create() time, so a change tears down and rebuilds
+      // _lsfg in place below (no capture reinit needed for these -- unlike
+      // lsfg_capture_framegen itself, handled earlier since it also affects pacing).
+      // lsfg_max_multiplier isn't baked into anything; update it live, no rebuild.
+      if (_lsfg) {
+        const auto desired_flow_scale = std::clamp(config::video.lsfg.flow_scale, 25, 100) / 100.0f;
+        const auto desired_queue_frames = config::video.lsfg.queue_frames;
+        const auto desired_performance_mode = config::video.lsfg.performance_mode;
+        if (desired_flow_scale != _lsfg_flow_scale || desired_queue_frames != _lsfg_queue_frames || desired_performance_mode != _lsfg_performance_mode) {
+          BOOST_LOG(info) << "LSFG: pipeline options changed mid-stream; rebuilding interpolator";
+          _lsfg.reset();
+        } else {
+          _lsfg->update_live_options(config::video.lsfg.max_multiplier, config::video.lsfg.target_fps_cutoff);
+        }
+      }
+
+      // Create the LSFG interpolator once the capture format is known (first time, or
+      // immediately after the hot-apply rebuild above).
       if (lsfg_wanted && !_lsfg) {
         lsfg_framegen_t::options_t options;
         options.flow_scale = std::clamp(config::video.lsfg.flow_scale, 25, 100) / 100.0f;
         options.max_multiplier = config::video.lsfg.max_multiplier;
+        options.queue_frames = config::video.lsfg.queue_frames;
+        options.performance_mode = config::video.lsfg.performance_mode;
+        options.target_fps_cutoff_percent = config::video.lsfg.target_fps_cutoff;
         if (_config.framerate > 0) {
           options.target_fps = _config.framerate;
         } else if (_config.framerateX100 > 0) {
           options.target_fps = _config.framerateX100 / 100.0;
         }
         _lsfg = lsfg_framegen_t::create(device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, options);
-        if (!_lsfg) {
+        if (_lsfg) {
+          _lsfg_flow_scale = options.flow_scale;
+          _lsfg_queue_frames = options.queue_frames;
+          _lsfg_performance_mode = options.performance_mode;
+        } else {
           _lsfg_failed = true;
         }
       }
@@ -415,6 +455,24 @@ namespace platf::dxgi {
     float phase = 0.0f;
     const bool generate = _lsfg->want_generated(std::chrono::steady_clock::now(), phase);
 
+    // Nothing genuinely new to show this tick (no fresh source frame, no generated
+    // frame due yet, AND the true captured frame has already been shown as itself):
+    // the requested stream FPS is a ceiling, not a floor -- don't push a duplicate
+    // of the last frame just to hit it. no_new_content (unlike timeout) tells the
+    // pacing loop this is routine, expected pacing slack, not a stall needing
+    // recovery. Skips the image-pool pull/keyed-mutex/GPU-copy work below entirely,
+    // since it would just be discarded.
+    //
+    // The passthrough_pending check matters even when !generate: if the last few
+    // ticks generated frames (extrapolating motion that has since stopped), the
+    // encoder's last frame is an approximation, not the true final content -- push
+    // the real frame once to settle on it before going idle, instead of leaving a
+    // generated/interpolated guess stuck on screen forever.
+    const bool passthrough_pending = _lsfg->has_new_passthrough_frame();
+    if (!have_new_frame && !generate && !passthrough_pending) {
+      return capture_e::no_new_content;
+    }
+
     std::shared_ptr<platf::img_t> img;
     if (!pull_free_image_cb(img)) {
       return capture_e::interrupted;
@@ -446,6 +504,7 @@ namespace platf::dxgi {
     }
     if (!wrote_generated) {
       device_ctx->CopyResource(d3d_img->capture_texture.get(), _lsfg->latest_texture());
+      _lsfg->mark_passthrough_shown();
     }
     d3d_img->blank = false;
 

@@ -482,6 +482,13 @@ namespace platf::dxgi {
 
             if (status == capture_e::ok && img_out) {
               frame_pacing_group_frames += 1;
+            } else if (status == capture_e::no_new_content) {
+              // Routine, expected pacing slack (e.g. LSFG holding because nothing new
+              // is due yet) -- NOT an anomaly. Keep the group and grid intact (this
+              // slot's time has still passed, so it counts for grid advancement) and
+              // just skip pushing a frame this tick, rather than busting/re-syncing
+              // as if content delivery had actually failed.
+              frame_pacing_group_frames += 1;
             } else {
               last_pacing_slot = sleep_target;
               ++pacing_bust_snapshot_miss;
@@ -525,7 +532,18 @@ namespace platf::dxgi {
               const auto phase_err = grid_ts > *raw_anchor ? (grid_ts - *raw_anchor) : (*raw_anchor - grid_ts);
               pacing_phase_error_logger.collect_and_log(std::chrono::duration<double, std::milli>(phase_err).count());
 
-              const auto snap_window = (std::min) (std::chrono::nanoseconds(2ms), std::chrono::nanoseconds(interval_ns) / 4);
+              // LSFG's snapshot() continuation calls can legitimately block for up to ~6ms
+              // (effective_wgc_timeout()'s grace window, display_wgc.cpp) waiting for a real
+              // WGC frame before falling back to a generated/pass-through one, which eats
+              // most of a high-fps pacing slot's budget and busts the group far more often
+              // than plain capture ever does. The default +-2ms snap window is narrower than
+              // that grace, so most LSFG busts missed it and fell back to a raw re-anchor --
+              // a full phase reset, visible as judder/"rewinding". Widen the tolerance to
+              // match when frame generation is filling pacing slots; non-LSFG capture is
+              // unaffected.
+              const auto snap_window = pacing_allow_above_refresh ?
+                                          (std::min) (std::chrono::nanoseconds(6ms), std::chrono::nanoseconds(interval_ns) / 2) :
+                                          (std::min) (std::chrono::nanoseconds(2ms), std::chrono::nanoseconds(interval_ns) / 4);
               const auto hold_limit = std::chrono::nanoseconds(interval_ns) * (m + 1);
               if (config::video.wgc_pacing_smoothing && phase_err <= snap_window && hold_limit <= std::chrono::nanoseconds(200ms)) {
                 snapped_anchor = grid_ts;
@@ -573,6 +591,7 @@ namespace platf::dxgi {
         case platf::capture_e::interrupted:
           return status;
         case platf::capture_e::timeout:
+        case platf::capture_e::no_new_content:
           if (!push_captured_image_cb(std::move(img_out), false)) {
             return capture_e::ok;
           }

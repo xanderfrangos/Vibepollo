@@ -238,6 +238,20 @@ namespace config {
       bool enabled;  ///< Interpolate captured frames up to the requested stream FPS.
       int flow_scale;  ///< Optical-flow resolution scale in percent (25..100).
       int max_multiplier;  ///< Adaptive interpolation cap (max generated/source frame ratio, 2..20).
+      /// Real source frames to hold back before interpolating (0..2). 0 = extrapolate from the
+      /// newest arrival (lowest latency, default). 1-2 = delay presentation by that many source
+      /// frames but interpolate the already-arrived pair using its exact measured interval
+      /// instead of a guess -- trades latency for smoothness, like Lossless Scaling's own
+      /// queue-target setting.
+      int queue_frames;
+      /// Use Lossless Scaling's "performance" optical-flow shader set instead of "quality"
+      /// (default). Lighter/faster, lower visual fidelity.
+      bool performance_mode;
+      /// Percent of the requested stream FPS the adaptive phase math internally aims for
+      /// (50..100, default 100 = no margin). Below 100, the interpolator deliberately
+      /// undershoots the requested rate, giving pacing decisions near a borderline
+      /// source:target ratio a bit more slack before hitting their edge case.
+      int target_fps_cutoff;
     } lsfg;
   };
 

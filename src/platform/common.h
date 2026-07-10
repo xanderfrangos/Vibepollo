@@ -440,7 +440,14 @@ namespace platf {
     reinit,  ///< Need to reinitialize
     timeout,  ///< Timeout
     interrupted,  ///< Capture was interrupted
-    error  ///< Error
+    error,  ///< Error
+    /// Nothing new to deliver this tick, but unlike timeout this is EXPECTED/routine
+    /// (e.g. host-side LSFG frame generation intentionally holding because neither a
+    /// new source frame nor a due generated frame exists yet), not an anomaly -- the
+    /// caller should skip pushing a frame this tick without treating it as a stall
+    /// that needs recovery/re-sync. Currently only produced by the Windows WGC+LSFG
+    /// capture path.
+    no_new_content
   };
 
   class display_t {

@@ -492,6 +492,13 @@ namespace platf::dxgi {
     std::unique_ptr<lsfg_framegen_t> _lsfg;  ///< Host-side LSFG interpolator (created after the first frame once the capture format is known).
     bool _lsfg_requested = false;  ///< Config asked for LSFG capture frame generation.
     bool _lsfg_failed = false;  ///< LSFG initialization failed; don't retry every frame.
+    // Options _lsfg was actually built with, for diffing against live config::video.lsfg
+    // each capture tick so pipeline-affecting settings changes rebuild it in place mid-stream
+    // (see snapshot()). Individual scalars rather than lsfg_framegen_t::options_t since
+    // lsfg_framegen_t is only forward-declared here.
+    float _lsfg_flow_scale = 1.0f;
+    int _lsfg_queue_frames = 0;
+    bool _lsfg_performance_mode = false;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {
