@@ -913,7 +913,7 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.has_capture = true;
   }
 
-  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc, bool /*frame_dirty*/) {
+  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc) {
     auto &impl = *_impl;
     if (!impl.has_capture) {
       return;

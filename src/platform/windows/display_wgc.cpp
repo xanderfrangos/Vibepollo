@@ -421,13 +421,12 @@ namespace platf::dxgi {
 
   capture_e display_wgc_ipc_vram_t::snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame) {
     // Feed the fresh helper frame into the interpolator. The shared IPC mutex is
-    // held only for the stage copy; dedup and the optical-flow pre-pass run after
-    // release so the helper's delivery thread is never stalled.
+    // held only for the stage copy; the optical-flow pre-pass runs after release
+    // so the helper's delivery thread is never stalled.
     if (have_new_frame) {
       winrt::com_ptr<ID3D11Texture2D> gpu_tex;
       uint64_t frame_qpc = 0;
-      bool frame_dirty = true;
-      auto capture_status = _ipc_session->lock_frame(gpu_tex, frame_qpc, &frame_dirty);
+      auto capture_status = _ipc_session->lock_frame(gpu_tex, frame_qpc);
       if (capture_status != capture_e::ok) {
         return capture_status;
       }
@@ -435,7 +434,7 @@ namespace platf::dxgi {
       _lsfg->stage_capture(gpu_tex.get());
       _ipc_session->release();
       _frame_locked = false;
-      _lsfg->commit_capture(frame_qpc, frame_dirty);
+      _lsfg->commit_capture(frame_qpc);
     }
 
     if (!_lsfg->has_frame()) {

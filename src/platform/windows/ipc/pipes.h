@@ -57,7 +57,6 @@ namespace platf::dxgi {
     volatile LONG64 sequence;
     volatile LONG64 frame_id;
     volatile LONG64 frame_qpc;
-    volatile LONG64 dirty;  ///< 1 when WGC reported (or couldn't report) real content change, 0 for a known compositor-only republish.
   };
 
   /**

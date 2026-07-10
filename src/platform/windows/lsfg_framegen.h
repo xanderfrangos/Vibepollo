@@ -84,11 +84,8 @@ namespace platf::dxgi {
      * @brief On new content, rotate sources and run the optical-flow pre-pass.
      * Call after the producer mutex has been released.
      * @param frame_qpc QPC timestamp of the captured frame (0 if unknown).
-     * @param frame_dirty Whether the capture backend reported this frame as a genuine content
-     *   change (WGC DirtyRegionMode) rather than a compositor-only republish. Always true when
-     *   the backend can't report it, which preserves the prior always-distinct behavior.
      */
-    void commit_capture(std::uint64_t frame_qpc, bool frame_dirty);
+    void commit_capture(std::uint64_t frame_qpc);
 
     /**
      * @brief Decide what the current pacing slot should show.
