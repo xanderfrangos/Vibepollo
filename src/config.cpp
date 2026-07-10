@@ -870,9 +870,7 @@ namespace config {
       false,  // lsfg.enabled
       100,  // lsfg.flow_scale
       4,  // lsfg.max_multiplier
-      0,  // lsfg.queue_frames
       false,  // lsfg.performance_mode
-      100,  // lsfg.target_fps_cutoff
     },  // lsfg
   };
 
@@ -1679,9 +1677,7 @@ namespace config {
     bool_f(vars, "lsfg_capture_framegen", video.lsfg.enabled);
     int_between_f(vars, "lsfg_flow_scale", video.lsfg.flow_scale, {25, 100});
     int_between_f(vars, "lsfg_max_multiplier", video.lsfg.max_multiplier, {2, 20});
-    int_between_f(vars, "lsfg_queue_frames", video.lsfg.queue_frames, {0, 2});
     bool_f(vars, "lsfg_performance_mode", video.lsfg.performance_mode);
-    int_between_f(vars, "lsfg_target_fps_cutoff", video.lsfg.target_fps_cutoff, {50, 100});
     string_f(vars, "encoder", video.encoder);
     string_f(vars, "adapter_name", video.adapter_name);
     string_f(vars, "output_name", video.output_name);

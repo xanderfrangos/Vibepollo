@@ -344,9 +344,7 @@ float4 ps_main(VSOut i) : SV_Target {
     float inv_flow = 1.0f;
     options_t options {};
 
-    // Real-frame pool: distinct frame N lands in sources[N % pool_size]. pool_size is
-    // 2 for queue_frames == 0 (today's ping-pong); options.queue_frames + 2 otherwise,
-    // sized so a frame's slot can't be overwritten before its turn as the active pair.
+    // Real-frame ping-pong pool: distinct frame N lands in sources[N % pool_size].
     std::vector<tex_t> sources;
     std::size_t pool_size = 2;
     // render-owned copy of the latest captured frame (hashed for dedup, and
@@ -360,7 +358,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
     blitter_t blitter;
 
-    // adaptive timing state (queue_frames == 0: extrapolate from the newest arrival)
+    // adaptive timing state: extrapolate phase from the newest arrival
     std::size_t frames_seen = 0;  // count of DISTINCT source frames consumed
     bool has_capture = false;
     std::uint64_t last_distinct_qpc = 0;
@@ -392,40 +390,20 @@ float4 ps_main(VSOut i) : SV_Target {
     bool diag_have_last_log = false;
     std::chrono::steady_clock::time_point diag_last_log {};
 
-    // True whenever latest_texture() may return something the caller hasn't shown yet
-    // (a real arrival landed, or queued mode advanced the active pair) as a genuine
-    // pass-through -- as opposed to a generated/extrapolated approximation of it. Lets
-    // the caller settle on the true final frame once generation stops being due, instead
-    // of leaving the last generated guess on screen forever. See mark_passthrough_shown().
+    // True whenever latest_texture() may return a real arrival the caller hasn't shown
+    // yet as a genuine pass-through -- as opposed to a generated/extrapolated
+    // approximation of it. Lets the caller settle on the true final frame once
+    // generation stops being due, instead of leaving the last generated guess on
+    // screen forever. See mark_passthrough_shown().
     bool passthrough_dirty = true;
-
-    // Queued-mode state (queue_frames >= 1: interpolate a confirmed pair). See
-    // impl_t::try_advance_active_pair() for the mechanism.
-    std::vector<std::uint64_t> slot_qpc;  // QPC of the real frame currently held in sources[i]
-    bool buffered_ready = false;  // true once the first active pair has been established
-    std::size_t active_idx = 0;  // 0-based arrival index of the active pair's newer frame
-    std::chrono::steady_clock::time_point active_anchor {};
-    std::chrono::nanoseconds active_interval = 16ms;
 
     // Optical-flow pre-pass output (mipmaps -> alpha0/alpha1 -> beta0/beta1). a1_out/
     // b1_imgs are a CONTINUOUSLY rolling temporal history the shaders expect fed one
     // real arrival at a time with no gaps (alpha1's per-level slot rotation, beta0's
-    // 3-way temporal blend) -- so the pre-pass always runs on every arrival regardless
-    // of queue_frames (see commit_capture()). In extrapolate mode gamma/delta/generate
-    // read a1_out/b1_imgs directly, same as always. In queued mode they instead read
-    // active_a1_out/active_b1_imgs, a separate stable working copy that's only
-    // refreshed (via CopyResource from held_a1_out/held_b1_imgs) when the active pair
-    // changes -- so it survives newer arrivals continuing to advance the rolling
-    // history underneath it without needing to touch that history at all. held_a1_out/
-    // held_b1_imgs is a pool_size-deep ring of full snapshots, one per pool slot,
-    // refreshed every arrival right after its own pre-pass run.
+    // 3-way temporal blend). gamma/delta/generate read them directly.
     std::array<ext_t, 7> a1_extent {};
     std::array<std::vector<std::vector<tex_t>>, 7> a1_out;
     std::vector<tex_t> b1_imgs;
-    std::array<std::vector<std::vector<tex_t>>, 7> active_a1_out;  // queue_frames >= 1 only
-    std::vector<tex_t> active_b1_imgs;  // queue_frames >= 1 only
-    std::vector<std::array<std::vector<std::vector<tex_t>>, 7>> held_a1_out;  // [pool slot]
-    std::vector<std::vector<tex_t>> held_b1_imgs;  // [pool slot]
 
     ~impl_t() {
       if (lossless_module) {
@@ -435,10 +413,6 @@ float4 ps_main(VSOut i) : SV_Target {
 
     bool build_pipeline();
     void run_steps(const std::vector<step_t> &steps, std::size_t fidx);
-    void try_advance_active_pair();
-    void start_active_pair();
-    void snapshot_flow_state(std::size_t slot);
-    void restore_active_flow_state(std::size_t slot);
     void recompute_frame_dur();
     void record_phase_tick(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point anchor, float elapsed_s, long slot, long steps_i);
   };
@@ -506,46 +480,6 @@ float4 ps_main(VSOut i) : SV_Target {
         result.push_back(&t);
       }
       return result;
-    }
-
-    using a1_out_t = std::array<std::vector<std::vector<tex_t>>, 7>;
-
-    /// Build a fresh set of plain (CopyResource-only) textures matching a1_out's shape.
-    /// @param group Textures per temporal slot: 2*m, i.e. 4 quality / 2 performance.
-    a1_out_t make_a1_out_like(builder_t &b, const std::array<ext_t, 7> &a1_extent, std::size_t group) {
-      a1_out_t out;
-      for (std::size_t lvl = 0; lvl < 7; ++lvl) {
-        const std::size_t slots = (lvl == 0) ? 3 : 2;
-        for (std::size_t s = 0; s < slots; ++s) {
-          out[lvl].push_back(b.texes(group, a1_extent[lvl], DXGI_FORMAT_R8G8B8A8_UNORM));
-        }
-      }
-      return out;
-    }
-
-    /// Build a fresh set of plain textures matching b1_imgs' shape (6 R8 pyramid levels).
-    std::vector<tex_t> make_b1_imgs_like(builder_t &b, ext_t be) {
-      std::vector<tex_t> out;
-      for (std::uint32_t i = 0; i < 6; ++i) {
-        out.push_back(b.tex(shift_ext(be, i), DXGI_FORMAT_R8_UNORM));
-      }
-      return out;
-    }
-
-    void copy_a1_out(ID3D11DeviceContext *ctx, const a1_out_t &src, a1_out_t &dst) {
-      for (std::size_t lvl = 0; lvl < 7; ++lvl) {
-        for (std::size_t s = 0; s < src[lvl].size() && s < dst[lvl].size(); ++s) {
-          for (std::size_t c = 0; c < src[lvl][s].size() && c < dst[lvl][s].size(); ++c) {
-            ctx->CopyResource(dst[lvl][s][c].tex.get(), src[lvl][s][c].tex.get());
-          }
-        }
-      }
-    }
-
-    void copy_b1_imgs(ID3D11DeviceContext *ctx, const std::vector<tex_t> &src, std::vector<tex_t> &dst) {
-      for (std::size_t i = 0; i < src.size() && i < dst.size(); ++i) {
-        ctx->CopyResource(dst[i].tex.get(), src[i].tex.get());
-      }
     }
 
   }  // namespace
@@ -637,12 +571,6 @@ float4 ps_main(VSOut i) : SV_Target {
       lvl.clear();
     }
     b1_imgs.clear();
-    for (auto &lvl : active_a1_out) {
-      lvl.clear();
-    }
-    active_b1_imgs.clear();
-    held_a1_out.clear();
-    held_b1_imgs.clear();
 
     // --- mipmaps: source -> 7 R8 mips of the flow grid ---
     std::vector<tex_t> mips;
@@ -658,9 +586,7 @@ float4 ps_main(VSOut i) : SV_Target {
     }
 
     // --- alpha0 + alpha1 per mip level, rendered level 6 down to 0 ---
-    // alpha1 keeps temporal history: 3 slots for level 0, 2 otherwise. a1_out/a1_extent
-    // are impl_t members (not locals): queued mode needs them outside build_pipeline()
-    // to size/copy the held-pair flow-state snapshots (see impl_t docs above).
+    // alpha1 keeps temporal history: 3 slots for level 0, 2 otherwise.
     for (std::size_t lvl = 0; lvl < 7; ++lvl) {
       const auto e = mips[lvl].extent;
       const auto half = add_shift(e, 1, 1);
@@ -735,30 +661,12 @@ float4 ps_main(VSOut i) : SV_Target {
       prepass.push_back(std::move(step));
     }
 
-    // --- queued mode only: a stable "active pair" working copy of a1_out/b1_imgs
-    // (refreshed via CopyResource, not compute-written, when the active pair changes),
-    // plus a pool_size-deep ring of full snapshots taken after every arrival's
-    // pre-pass run so an arbitrary already-arrived pair's flow data survives newer
-    // arrivals continuing to advance the rolling live history. See impl_t docs above.
-    if (options.queue_frames >= 1) {
-      active_a1_out = make_a1_out_like(b, a1_extent, 2 * m);
-      active_b1_imgs = make_b1_imgs_like(b, be);
-      held_a1_out.reserve(pool_size);
-      held_b1_imgs.reserve(pool_size);
-      for (std::size_t slot = 0; slot < pool_size; ++slot) {
-        held_a1_out.push_back(make_a1_out_like(b, a1_extent, 2 * m));
-        held_b1_imgs.push_back(make_b1_imgs_like(b, be));
-      }
-    }
-
     // --- per generated frame: gamma / delta pyramids + generate ---
     for (std::size_t p = 0; p < count; ++p) {
       ID3D11Buffer *cb = cbp[p].get();
-      // Extrapolate mode reads the live, continuously-rolling a1_out/b1_imgs directly.
-      // Queued mode reads the separate "active pair" working copy instead, refreshed
-      // by start_active_pair() -- see the impl_t member docs for why.
-      auto &gen_a1_out = (options.queue_frames >= 1) ? active_a1_out : a1_out;
-      auto &gen_b1_imgs = (options.queue_frames >= 1) ? active_b1_imgs : b1_imgs;
+      // Reads the live, continuously-rolling a1_out/b1_imgs directly.
+      auto &gen_a1_out = a1_out;
+      auto &gen_b1_imgs = b1_imgs;
       std::vector<step_t> steps;
       std::vector<tex_t> g1_img;
       std::vector<tex_t> d1_img0;
@@ -892,9 +800,8 @@ float4 ps_main(VSOut i) : SV_Target {
       {
         step_t step;
         for (std::size_t v = 0; v < pool_size; ++v) {
-          // variant v: curr = sources[v] (the pair's newer/active frame), prev = the
-          // slot immediately behind it in the ring. Identical to the old fixed
-          // i==0/i==1 two-variant scheme when pool_size == 2.
+          // variant v: curr = sources[v] (the newest arrival), prev = the slot
+          // immediately behind it in the ping-pong pair.
           const tex_t *s1 = &sources[v];
           const tex_t *s0 = &sources[(v + pool_size - 1) % pool_size];
           step.variants.push_back({b.disp(
@@ -1001,11 +908,9 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.options = options;
     impl.options.flow_scale = std::clamp(options.flow_scale, 0.25f, 1.0f);
     impl.options.max_multiplier = std::clamp(options.max_multiplier, 2, 20);
-    impl.options.queue_frames = std::clamp(options.queue_frames, 0, 2);
-    impl.options.target_fps_cutoff_percent = std::clamp(options.target_fps_cutoff_percent, 50, 100);
     impl.inv_flow = 1.0f / impl.options.flow_scale;
     impl.recompute_frame_dur();
-    impl.pool_size = static_cast<std::size_t>(impl.options.queue_frames) + 2;
+    impl.pool_size = 2;
 
     impl.lossless_module = LoadLibraryExW(dll_path->c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
     if (!impl.lossless_module) {
@@ -1014,7 +919,6 @@ float4 ps_main(VSOut i) : SV_Target {
     }
 
     impl.sources.resize(impl.pool_size);
-    impl.slot_qpc.assign(impl.pool_size, 0);
     for (auto &src : impl.sources) {
       if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, src)) {
         return nullptr;
@@ -1035,10 +939,8 @@ float4 ps_main(VSOut i) : SV_Target {
 
     BOOST_LOG(info) << "LSFG: adaptive frame generation active [" << width << 'x' << height
                     << ", target " << options.target_fps << " fps"
-                    << (impl.options.target_fps_cutoff_percent < 100 ? " (internally pacing to " + std::to_string(options.target_fps * impl.options.target_fps_cutoff_percent / 100.0) + " fps, " + std::to_string(impl.options.target_fps_cutoff_percent) + "% cutoff)" : std::string())
                     << ", flow scale " << impl.options.flow_scale
-                    << ", cap " << impl.options.max_multiplier << "x, queue "
-                    << impl.options.queue_frames << " frame(s), "
+                    << ", cap " << impl.options.max_multiplier << "x, "
                     << (impl.options.performance_mode ? "performance" : "quality") << " shaders, "
                     << (hdr ? "HDR" : "SDR") << ", shaders from " << dll_path->string() << ']';
     return self;
@@ -1108,157 +1010,31 @@ float4 ps_main(VSOut i) : SV_Target {
       impl.last_distinct_qpc = frame_qpc;
     }
 
-    if (impl.options.queue_frames <= 0) {
-      // Extrapolate mode (today's behavior, unchanged): run the flow pre-pass
-      // immediately for the newest arrival and reset the wall-clock phase anchor.
-      //
-      // Anchor to the frame's own QPC timestamp (the compositor's capture clock),
-      // not steady_clock::now() at commit time: WGC delivery jitter, the up-to-~6ms
-      // effective_wgc_timeout() blocking wait, and IPC handoff all add variable delay
-      // between when the frame was actually captured and when commit_capture() runs
-      // for it. Re-deriving the phase-slot grid from that jittery instant every
-      // interval can misclassify a metronome tick into the wrong slot; QPC is the
-      // same clock WGC stamped the frame with, so this locks the grid to the
-      // source's true cadence instead. Falls back to steady_clock::now() if the
-      // backend couldn't supply a QPC timestamp.
-      impl.last_arrival = frame_qpc != 0
-        ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(frame_qpc))
-        : std::chrono::steady_clock::now();
-      if (impl.frames_seen > 0) {
-        // compute optical flow once per distinct frame; generation tails reuse it
-        // for every phase requested until the next distinct frame arrives
-        impl.run_steps(impl.prepass, impl.frames_seen);
-      }
-      ++impl.frames_seen;
-      return;
-    }
-
-    // Queued mode: the flow pre-pass still runs on every single arrival, exactly
-    // like extrapolate mode -- the shaders' alpha1/beta0 temporal history is a
-    // continuously rolling window with no concept of "skip this one," so it must
-    // never see a gap regardless of whether this arrival ends up chosen as an
-    // active pair's endpoint. Immediately after, snapshot the live a1_out/b1_imgs
-    // into this slot's held copy so a delayed pair's flow data survives later
-    // arrivals continuing to advance that same rolling history underneath it.
-    impl.slot_qpc[new_idx % impl.pool_size] = frame_qpc;
-    if (impl.frames_seen > 0) {
-      impl.run_steps(impl.prepass, new_idx);
-    }
-    impl.snapshot_flow_state(new_idx % impl.pool_size);
-    ++impl.frames_seen;
-    impl.try_advance_active_pair();
-  }
-
-  void lsfg_framegen_t::impl_t::try_advance_active_pair() {
-    const std::size_t newest_idx = frames_seen - 1;  // 0-based index of the newest arrival
-    const auto lookahead = static_cast<std::size_t>(options.queue_frames);
-
-    if (!buffered_ready) {
-      // Bootstrap: need a first pair (0, 1) plus `lookahead` frames of confirmation
-      // beyond it before we can trust its measured interval and start presenting it.
-      if (frames_seen < 2 + lookahead) {
-        return;
-      }
-      active_idx = 1;
-      start_active_pair();
-      buffered_ready = true;
-      return;
-    }
-
-    // Already presenting a pair: advance the instant the next one is confirmed
-    // (arrival-count based), NOT gated on real elapsed time vs. active_interval.
+    // Run the flow pre-pass immediately for the newest arrival and reset the
+    // wall-clock phase anchor.
     //
-    // active_interval is deliberately a single unsmoothed measurement (it needs to
-    // be the *exact* interval for that specific pair, that's the whole point of
-    // queued mode) -- which makes it as noisy as any single game frame-time sample.
-    // Gating advancement on "has that long elapsed yet" let one overestimated
-    // interval stall active_idx while new real arrivals kept landing in the source
-    // pool regardless (commit_capture() always writes sources[new_idx % pool_size]
-    // unconditionally) -- pool_size is sized assuming active_idx never lags
-    // newest_idx - lookahead by more than one arrival, so stalling it let a new
-    // arrival's slot wrap around and overwrite a texture the still-active pair was
-    // being read from mid-use. That was visible as periodic artifacting, with a
-    // stutter when the gate finally released and jumped to catch up.
-    //
-    // want_generated()'s own elapsed/active_interval phase clamp is what paces the
-    // *visual* reveal of generated frames within a pair; it doesn't need this
-    // function to also gate on time, only to keep the pool from overflowing.
-    if (newest_idx < active_idx + 1 + lookahead) {
-      return;  // next pair isn't confirmed yet -- want_generated() holds
-    }
-
-    active_idx = newest_idx - lookahead;
-    start_active_pair();
-  }
-
-  void lsfg_framegen_t::impl_t::start_active_pair() {
-    const auto curr_qpc = slot_qpc[active_idx % pool_size];
-    const auto prev_qpc = slot_qpc[(active_idx - 1) % pool_size];
-    // Same QPC-anchoring rationale as extrapolate mode's last_arrival (see
-    // commit_capture()): locks the phase-slot grid to the pair's actual capture
-    // cadence rather than the jittery instant try_advance_active_pair() happened to
-    // run at.
-    active_anchor = curr_qpc != 0
-      ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(curr_qpc))
+    // Anchor to the frame's own QPC timestamp (the compositor's capture clock),
+    // not steady_clock::now() at commit time: WGC delivery jitter, the up-to-~6ms
+    // effective_wgc_timeout() blocking wait, and IPC handoff all add variable delay
+    // between when the frame was actually captured and when commit_capture() runs
+    // for it. Re-deriving the phase-slot grid from that jittery instant every
+    // interval can misclassify a metronome tick into the wrong slot; QPC is the
+    // same clock WGC stamped the frame with, so this locks the grid to the
+    // source's true cadence instead. Falls back to steady_clock::now() if the
+    // backend couldn't supply a QPC timestamp.
+    impl.last_arrival = frame_qpc != 0
+      ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(frame_qpc))
       : std::chrono::steady_clock::now();
-    if (curr_qpc != 0 && prev_qpc != 0 && curr_qpc > prev_qpc) {
-      const auto dt = platf::qpc_time_difference(static_cast<int64_t>(curr_qpc), static_cast<int64_t>(prev_qpc));
-      if (dt > 0ns) {
-        // Same runaway-gap guard as extrapolate mode's max_multiplier cap: a pair
-        // separated by a long stall is held, not slow-motion-crossfaded into.
-        active_interval = std::min(dt, frame_dur * options.max_multiplier);
-      }
+    if (impl.frames_seen > 0) {
+      // compute optical flow once per distinct frame; generation tails reuse it
+      // for every phase requested until the next distinct frame arrives
+      impl.run_steps(impl.prepass, impl.frames_seen);
     }
-    // The flow pre-pass for exactly this (prev, curr) pair already ran continuously
-    // back when this arrival came in (commit_capture()); pull its saved snapshot
-    // into the stable "active" working copy gamma/delta/generate read from, rather
-    // than re-running the pre-pass now (which would compute flow for whatever the
-    // live rolling history currently holds -- almost certainly a later pair by now).
-    restore_active_flow_state(active_idx % pool_size);
-  }
-
-  void lsfg_framegen_t::impl_t::snapshot_flow_state(std::size_t slot) {
-    copy_a1_out(ctx.get(), a1_out, held_a1_out[slot]);
-    copy_b1_imgs(ctx.get(), b1_imgs, held_b1_imgs[slot]);
-  }
-
-  void lsfg_framegen_t::impl_t::restore_active_flow_state(std::size_t slot) {
-    copy_a1_out(ctx.get(), held_a1_out[slot], active_a1_out);
-    copy_b1_imgs(ctx.get(), held_b1_imgs[slot], active_b1_imgs);
+    ++impl.frames_seen;
   }
 
   bool lsfg_framegen_t::want_generated(std::chrono::steady_clock::time_point now, float &phase_out) {
     auto &impl = *_impl;
-
-    if (impl.options.queue_frames >= 1) {
-      // Queued mode: the active pair's interval is exact (measured, not estimated),
-      // so no min_gen_ratio/quantization noise-reduction is needed here -- that was
-      // only ever compensating for src_interval being a guess. Still wall-clock
-      // elapsed/interval, for the same call-cadence-robustness reason as below.
-      if (!impl.buffered_ready) {
-        return false;
-      }
-      const auto elapsed = std::chrono::duration<float>(now - impl.active_anchor).count();
-      const auto interval_s = std::max(std::chrono::duration<float>(impl.active_interval).count(), 1e-4f);
-      const auto frame_dur_s = std::max(std::chrono::duration<float>(impl.frame_dur).count(), 1e-4f);
-      const long steps = std::max<long>(1, std::lround(interval_s / frame_dur_s));
-
-      // Bucket by tick number within the interval, not by rounding a continuous
-      // fraction -- see the extrapolate-mode branch below for why flooring avoids
-      // duplicate/skipped slots that rounding produces. active_interval is exact here
-      // (queued mode's whole point), so this is purely about matching lsfg-vk's
-      // fixed-phase cadence and avoiding rounding-boundary flips, not about denominator
-      // noise (extrapolate mode's other reason for quantizing).
-      long slot = static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1;
-      slot = std::clamp<long>(slot, 1, steps);
-      impl.record_phase_tick(now, impl.active_anchor, elapsed, slot, steps);
-      if (slot >= steps) {
-        return false;  // holding at the active pair's newer frame until the next pair is ready
-      }
-
-      phase_out = static_cast<float>(slot) / static_cast<float>(steps);
-      return true;
-    }
 
     if (impl.frames_seen < 2) {
       return false;
@@ -1327,8 +1103,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
   bool lsfg_framegen_t::render_generated(float phase, ID3D11RenderTargetView *rtv, std::uint32_t out_width, std::uint32_t out_height) {
     auto &impl = *_impl;
-    const bool queued = impl.options.queue_frames >= 1;
-    if ((queued ? !impl.buffered_ready : impl.frames_seen < 2) || impl.passes.empty() || !rtv) {
+    if (impl.frames_seen < 2 || impl.passes.empty() || !rtv) {
       return false;
     }
 
@@ -1336,9 +1111,7 @@ float4 ps_main(VSOut i) : SV_Target {
     const auto data = make_cb_data(phase, impl.inv_flow, impl.hdr);
     impl.ctx->UpdateSubresource(impl.cbp[0].get(), 0, nullptr, &data, 0, 0);
 
-    // Queued mode: the pool-index variant for the pair the pre-pass was just run
-    // against (start_active_pair()). Extrapolate mode: the newest arrival, as before.
-    const std::size_t fidx = queued ? impl.active_idx : impl.frames_seen - 1;
+    const std::size_t fidx = impl.frames_seen - 1;
     impl.run_steps(impl.passes[0], fidx);
     impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), rtv, out_width, out_height);
     return true;
@@ -1346,17 +1119,15 @@ float4 ps_main(VSOut i) : SV_Target {
 
   void lsfg_framegen_t::impl_t::recompute_frame_dur() {
     if (options.target_fps > 0.0) {
-      const double effective_target_fps = options.target_fps * (static_cast<double>(options.target_fps_cutoff_percent) / 100.0);
-      frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / effective_target_fps));
+      frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / options.target_fps));
     }
   }
 
   // TEMPORARY diagnostics (added 2026-07-09): see the diag_* member docs above.
-  // Called from both want_generated() branches once per tick, right after the slot
-  // for that tick is decided. `anchor` is impl.last_arrival (extrapolate) or
-  // impl.active_anchor (queued) -- comparing it to the previous call's anchor is how
-  // "a new source interval started" is detected, since both are only ever reassigned
-  // on a genuine new arrival/pair activation.
+  // Called from want_generated() once per tick, right after the slot for that tick
+  // is decided. `anchor` is impl.last_arrival -- comparing it to the previous call's
+  // anchor is how "a new source interval started" is detected, since it's only ever
+  // reassigned on a genuine new arrival.
   void lsfg_framegen_t::impl_t::record_phase_tick(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point anchor, float elapsed_s, long slot, long steps_i) {
     if (diag_have_last_anchor && anchor != diag_last_anchor) {
       ++diag_intervals_closed;
@@ -1416,25 +1187,13 @@ float4 ps_main(VSOut i) : SV_Target {
                     << " first_tick_elapsed_ms=[" << (diag_first_tick_elapsed_min * 1000.0f) << ".." << (diag_first_tick_elapsed_max * 1000.0f) << "]";
   }
 
-  void lsfg_framegen_t::update_live_options(int max_multiplier, int target_fps_cutoff_percent) {
+  void lsfg_framegen_t::update_live_options(int max_multiplier) {
     auto &impl = *_impl;
     impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
-    const auto clamped_cutoff = std::clamp(target_fps_cutoff_percent, 50, 100);
-    if (clamped_cutoff != impl.options.target_fps_cutoff_percent) {
-      impl.options.target_fps_cutoff_percent = clamped_cutoff;
-      impl.recompute_frame_dur();
-    }
   }
 
   ID3D11Texture2D *lsfg_framegen_t::latest_texture() const {
-    auto &impl = *_impl;
-    if (impl.options.queue_frames >= 1 && impl.buffered_ready) {
-      // Show the active pair's confirmed newer frame while holding, not the
-      // absolute newest raw capture -- jumping to it would skip ahead of the
-      // deliberate queue delay and undo the point of buffering.
-      return impl.sources[impl.active_idx % impl.pool_size].tex.get();
-    }
-    return impl.latest.tex.get();
+    return _impl->latest.tex.get();
   }
 
   bool lsfg_framegen_t::has_frame() const {

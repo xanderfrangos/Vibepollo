@@ -43,24 +43,10 @@ namespace platf::dxgi {
       float flow_scale = 1.0f;  ///< Optical-flow resolution scale, 0.25..1.0.
       int max_multiplier = 4;  ///< Adaptive phase cap (max output/input frame ratio honored).
       double target_fps = 60.0;  ///< Client-requested stream FPS (interpolation target).
-      /// Real source frames to hold back before interpolating (0..2). 0 = extrapolate from the
-      /// newest arrival using an estimated interval (lowest latency, today's default behavior).
-      /// N>=1 delays presentation by N source-frame intervals, but interpolates the confirmed
-      /// (already-arrived) pair using its *exact* measured interval instead of a guess -- trades
-      /// latency for smoothness, mirroring Lossless Scaling's own queue-target setting.
-      int queue_frames = 0;
       /// Use Lossless Scaling's "performance" optical-flow shader set instead of "quality".
       /// Lighter/faster (fewer temporal-history texture bindings per shader), lower visual
       /// fidelity. Same shader roles and resource layout, just less work per dispatch.
       bool performance_mode = false;
-      /// Percent of target_fps the adaptive phase math internally aims for (50..100,
-      /// default 100 = no margin). Values below 100 deliberately have the interpolator
-      /// undershoot the requested rate, giving every pacing decision derived from
-      /// frame_dur (the min-gen-ratio cutoff, the phase quantization grid, the
-      /// near-end-of-window hold threshold) a bit more slack before hitting its edge
-      /// case -- helps with jitter right at a borderline source:target ratio. Does not
-      /// change target_fps itself (still reported/logged as requested).
-      int target_fps_cutoff_percent = 100;
     };
 
     ~lsfg_framegen_t();
@@ -134,18 +120,15 @@ namespace platf::dxgi {
     /**
      * @brief Update the option(s) that don't require rebuilding the GPU pipeline.
      * Safe to call mid-stream with zero disruption. Everything else in options_t
-     * (flow_scale, queue_frames, performance_mode) is baked into fixed-size textures
-     * and shader/dispatch selection at create() time; changing those requires
+     * (flow_scale, performance_mode) is baked into fixed-size textures and
+     * shader/dispatch selection at create() time; changing those requires
      * destroying and recreating the whole lsfg_framegen_t instance instead.
      * @param max_multiplier New adaptive phase cap (clamped 2..20, as in create()).
-     * @param target_fps_cutoff_percent New target-fps margin (clamped 50..100, as in create()).
      */
-    void update_live_options(int max_multiplier, int target_fps_cutoff_percent);
+    void update_live_options(int max_multiplier);
 
     /**
-     * @brief Frame to show when not actively generating: the newest raw capture in extrapolate
-     * mode (queue_frames == 0), or the active buffered pair's newer frame once queued mode has
-     * a confirmed pair (queue_frames >= 1) -- falling back to the newest raw capture until then.
+     * @brief Frame to show when not actively generating: the newest raw capture.
      * Never null after the first stage_capture().
      */
     ID3D11Texture2D *latest_texture() const;
@@ -167,8 +150,7 @@ namespace platf::dxgi {
 
     /**
      * @brief Record that the caller just displayed latest_texture() as a genuine
-     * pass-through, clearing has_new_passthrough_frame() until the next real arrival
-     * (or queued-mode active-pair advance).
+     * pass-through, clearing has_new_passthrough_frame() until the next real arrival.
      */
     void mark_passthrough_shown();
 

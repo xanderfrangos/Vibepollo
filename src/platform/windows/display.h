@@ -497,7 +497,6 @@ namespace platf::dxgi {
     // (see snapshot()). Individual scalars rather than lsfg_framegen_t::options_t since
     // lsfg_framegen_t is only forward-declared here.
     float _lsfg_flow_scale = 1.0f;
-    int _lsfg_queue_frames = 0;
     bool _lsfg_performance_mode = false;
   };
 

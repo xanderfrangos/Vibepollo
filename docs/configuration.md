@@ -2706,34 +2706,6 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
-### lsfg_queue_frames
-
-<table>
-    <tr>
-        <td>Description</td>
-        <td colspan="2">
-            Real source frames `lsfg_capture_framegen` holds back before interpolating. 0
-            extrapolates from the newest arrival immediately (lowest latency). 1-2 delay
-            presentation by that many source-frame intervals, but interpolate the already-arrived
-            pair using its exact measured interval instead of an estimate -- trades latency for
-            smoothness, mirroring Lossless Scaling's own queue-target setting.
-            @note{Applies to Windows only. Range 0-2.}
-        </td>
-    </tr>
-    <tr>
-        <td>Default</td>
-        <td colspan="2">@code{}
-            0
-            @endcode</td>
-    </tr>
-    <tr>
-        <td>Example</td>
-        <td colspan="2">@code{}
-            lsfg_queue_frames = 1
-            @endcode</td>
-    </tr>
-</table>
-
 ### lsfg_performance_mode
 
 <table>
@@ -2756,34 +2728,6 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>Example</td>
         <td colspan="2">@code{}
             lsfg_performance_mode = enabled
-            @endcode</td>
-    </tr>
-</table>
-
-### lsfg_target_fps_cutoff
-
-<table>
-    <tr>
-        <td>Description</td>
-        <td colspan="2">
-            Percent of the requested stream FPS `lsfg_capture_framegen` internally paces to. 100%
-            (default) aims for the exact requested rate. Lower values deliberately undershoot it,
-            giving pacing decisions a bit more slack right at a borderline source:target framerate
-            ratio -- try lowering this a few percent if you see occasional stutter despite
-            everything else looking fine.
-            @note{Applies to Windows only. Range 50-100.}
-        </td>
-    </tr>
-    <tr>
-        <td>Default</td>
-        <td colspan="2">@code{}
-            100
-            @endcode</td>
-    </tr>
-    <tr>
-        <td>Example</td>
-        <td colspan="2">@code{}
-            lsfg_target_fps_cutoff = 97
             @endcode</td>
     </tr>
 </table>

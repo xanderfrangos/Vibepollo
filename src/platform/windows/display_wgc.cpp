@@ -287,21 +287,20 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Hot-apply lsfg_flow_scale/lsfg_queue_frames/lsfg_performance_mode mid-stream:
-      // all three are baked into the GPU pipeline's fixed-size textures and shader/
-      // dispatch selection at create() time, so a change tears down and rebuilds
-      // _lsfg in place below (no capture reinit needed for these -- unlike
-      // lsfg_capture_framegen itself, handled earlier since it also affects pacing).
+      // Hot-apply lsfg_flow_scale/lsfg_performance_mode mid-stream: both are baked
+      // into the GPU pipeline's fixed-size textures and shader/dispatch selection at
+      // create() time, so a change tears down and rebuilds _lsfg in place below (no
+      // capture reinit needed for these -- unlike lsfg_capture_framegen itself,
+      // handled earlier since it also affects pacing).
       // lsfg_max_multiplier isn't baked into anything; update it live, no rebuild.
       if (_lsfg) {
         const auto desired_flow_scale = std::clamp(config::video.lsfg.flow_scale, 25, 100) / 100.0f;
-        const auto desired_queue_frames = config::video.lsfg.queue_frames;
         const auto desired_performance_mode = config::video.lsfg.performance_mode;
-        if (desired_flow_scale != _lsfg_flow_scale || desired_queue_frames != _lsfg_queue_frames || desired_performance_mode != _lsfg_performance_mode) {
+        if (desired_flow_scale != _lsfg_flow_scale || desired_performance_mode != _lsfg_performance_mode) {
           BOOST_LOG(info) << "LSFG: pipeline options changed mid-stream; rebuilding interpolator";
           _lsfg.reset();
         } else {
-          _lsfg->update_live_options(config::video.lsfg.max_multiplier, config::video.lsfg.target_fps_cutoff);
+          _lsfg->update_live_options(config::video.lsfg.max_multiplier);
         }
       }
 
@@ -311,9 +310,7 @@ namespace platf::dxgi {
         lsfg_framegen_t::options_t options;
         options.flow_scale = std::clamp(config::video.lsfg.flow_scale, 25, 100) / 100.0f;
         options.max_multiplier = config::video.lsfg.max_multiplier;
-        options.queue_frames = config::video.lsfg.queue_frames;
         options.performance_mode = config::video.lsfg.performance_mode;
-        options.target_fps_cutoff_percent = config::video.lsfg.target_fps_cutoff;
         if (_config.framerate > 0) {
           options.target_fps = _config.framerate;
         } else if (_config.framerateX100 > 0) {
@@ -322,7 +319,6 @@ namespace platf::dxgi {
         _lsfg = lsfg_framegen_t::create(device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, options);
         if (_lsfg) {
           _lsfg_flow_scale = options.flow_scale;
-          _lsfg_queue_frames = options.queue_frames;
           _lsfg_performance_mode = options.performance_mode;
         } else {
           _lsfg_failed = true;

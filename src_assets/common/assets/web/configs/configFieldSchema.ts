@@ -83,8 +83,6 @@ const NUMBER_FIELD_OVERRIDES: Record<string, Partial<ConfigFieldDefinition>> = {
   frame_limiter_fps_limit: { min: 0, max: 1000, step: 1, precision: 0, placeholder: '0' },
   lsfg_flow_scale: { min: 25, max: 100, step: 5, precision: 0, placeholder: '100' },
   lsfg_max_multiplier: { min: 2, max: 20, step: 1, precision: 0, placeholder: '4' },
-  lsfg_queue_frames: { min: 0, max: 2, step: 1, precision: 0, placeholder: '0' },
-  lsfg_target_fps_cutoff: { min: 50, max: 100, step: 1, precision: 0, placeholder: '100' },
 };
 
 const SLIDER_KEYS = new Set<string>([
@@ -94,8 +92,6 @@ const SLIDER_KEYS = new Set<string>([
   'rtx_hdr_middle_gray',
   'rtx_hdr_peak_brightness',
   'lsfg_flow_scale',
-  'lsfg_queue_frames',
-  'lsfg_target_fps_cutoff',
 ]);
 
 function isFiniteNumber(value: unknown): value is number {
