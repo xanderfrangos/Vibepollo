@@ -2627,6 +2627,111 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
+### lsfg_capture_framegen
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Host-side Lossless Scaling frame generation (LSFG). Interpolates captured frames with the
+            LSFG optical-flow compute shaders (adaptive mode) up to the client-requested stream FPS,
+            directly inside the capture pipeline. Works on the desktop and in any game without launching
+            the Lossless Scaling app, and adapts automatically to variable source frame rates.
+            @note{Applies to Windows only. Requires a local Lossless Scaling installation (the shaders
+            are loaded from Lossless.dll at runtime), Windows.Graphics.Capture and a hardware encoder.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            disabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_capture_framegen = enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_flow_scale
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Resolution scale (percent) of the LSFG optical-flow estimation used by
+            `lsfg_capture_framegen`. Lower values reduce GPU cost at some quality loss.
+            @note{Applies to Windows only. Range 25-100.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            100
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_flow_scale = 75
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_max_multiplier
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Caps how far `lsfg_capture_framegen` interpolates when the source stalls or runs very
+            slowly, expressed as the maximum output/source frame ratio. Past the cap the newest real
+            frame is held until the next source frame arrives.
+            @note{Applies to Windows only. Range 2-20.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            4
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_max_multiplier = 4
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_performance_mode
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Uses Lossless Scaling's lighter "performance" optical-flow shader set instead of the
+            default "quality" set for `lsfg_capture_framegen`. Lower GPU cost, lower visual
+            fidelity -- try this if LSFG is too heavy for the GPU at your target framerate.
+            @note{Applies to Windows only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            disabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_performance_mode = enabled
+            @endcode</td>
+    </tr>
+</table>
+
 ### encoder
 
 <table>

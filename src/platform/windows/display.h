@@ -193,6 +193,11 @@ namespace platf::dxgi {
     int client_frame_rate {};
     DXGI_RATIONAL client_frame_rate_strict {0, 0};
 
+    // Frame generation can pace output above the host display's refresh rate:
+    // the source only delivers frames at the compositor rate, but generated
+    // in-between frames fill the remaining pacing slots.
+    bool pacing_allow_above_refresh {false};
+
     DXGI_FORMAT capture_format;
     D3D_FEATURE_LEVEL feature_level;
 
@@ -396,6 +401,8 @@ namespace platf::dxgi {
    * This backend utilizes a separate capture process and synchronizes frames to Sunshine,
    * allowing screen capture even when running as a SYSTEM service.
    */
+  class lsfg_framegen_t;
+
   class display_wgc_ipc_vram_t: public display_vram_t {
   public:
     /**
@@ -465,6 +472,15 @@ namespace platf::dxgi {
     capture_e release_snapshot() override;
 
   private:
+    /**
+     * @brief Produce a frame for the current pacing slot with LSFG frame generation active.
+     * @param pull_free_image_cb Callback to pull a free image buffer.
+     * @param img_out Output parameter for the produced image.
+     * @param have_new_frame True when wait_for_frame() reported a fresh helper frame to consume.
+     * @return Status of the capture operation.
+     */
+    capture_e snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame);
+
     std::unique_ptr<class ipc_session_t> _ipc_session;
     ::video::config_t _config;
     std::string _display_name;
@@ -473,6 +489,15 @@ namespace platf::dxgi {
     std::shared_ptr<platf::img_t> _last_cached_frame;
     std::chrono::steady_clock::time_point _wgc_stall_start {};  ///< Start of the current frame-wait stall (zero when frames are flowing).
     std::chrono::steady_clock::time_point _last_secure_desktop_probe {};  ///< Last secure-desktop probe performed during a stall.
+    std::unique_ptr<lsfg_framegen_t> _lsfg;  ///< Host-side LSFG interpolator (created after the first frame once the capture format is known).
+    bool _lsfg_requested = false;  ///< Config asked for LSFG capture frame generation.
+    bool _lsfg_failed = false;  ///< LSFG initialization failed; don't retry every frame.
+    // Options _lsfg was actually built with, for diffing against live config::video.lsfg
+    // each capture tick so pipeline-affecting settings changes rebuild it in place mid-stream
+    // (see snapshot()). Individual scalars rather than lsfg_framegen_t::options_t since
+    // lsfg_framegen_t is only forward-declared here.
+    float _lsfg_flow_scale = 1.0f;
+    bool _lsfg_performance_mode = false;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {

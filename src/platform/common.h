@@ -440,7 +440,11 @@ namespace platf {
     reinit,  ///< Need to reinitialize
     timeout,  ///< Timeout
     interrupted,  ///< Capture was interrupted
-    error  ///< Error
+    error,  ///< Error
+    /// Nothing to deliver this tick, but unlike timeout this is routine (e.g. LSFG
+    /// holding with no due frame): skip pushing without treating it as a stall needing
+    /// recovery. Only produced by the Windows WGC+LSFG capture path.
+    no_new_content
   };
 
   class display_t {
