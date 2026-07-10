@@ -364,28 +364,6 @@ float4 ps_main(VSOut i) : SV_Target {
     std::chrono::steady_clock::time_point last_arrival {};
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
-    std::size_t consecutive_dirty_skips = 0;  // guards against an unreliable frame_dirty signal
-    std::uint64_t commit_calls = 0;  // diagnostics: total commit_capture() calls
-    std::uint64_t dirty_skip_total = 0;  // diagnostics: calls where frame_dirty was false
-
-    // TEMPORARY pacing-quality instrumentation, logged periodically by
-    // record_phase_tick(); safe to remove once pacing is confirmed good.
-    bool diag_have_last_anchor = false;
-    std::chrono::steady_clock::time_point diag_last_anchor {};
-    std::uint64_t diag_ticks_total = 0;  // every want_generated() call that reached slot logic
-    std::uint64_t diag_generated_count = 0;  // ticks that returned a generated phase
-    std::uint64_t diag_passthrough_tick_count = 0;  // ticks that landed on the real-frame slot
-    std::uint64_t diag_duplicate_slot_count = 0;  // consecutive ticks in the same interval, same slot
-    long diag_last_slot_in_interval = -1;
-    std::uint64_t diag_interval_ticks = 0;  // ticks seen so far in the current interval
-    bool diag_interval_showed_real = false;
-    std::uint64_t diag_intervals_closed = 0;
-    std::uint64_t diag_single_tick_intervals = 0;  // intervals that only got one tick total
-    std::uint64_t diag_intervals_real_shown = 0;  // intervals where the real frame slot was hit
-    float diag_first_tick_elapsed_min = 1e9f;
-    float diag_first_tick_elapsed_max = 0.0f;
-    bool diag_have_last_log = false;
-    std::chrono::steady_clock::time_point diag_last_log {};
 
     // Set on each real arrival, cleared once shown as a genuine pass-through: lets the
     // caller settle on the true final frame once generation stops being due, instead of
@@ -408,7 +386,6 @@ float4 ps_main(VSOut i) : SV_Target {
     bool build_pipeline();
     void run_steps(const std::vector<step_t> &steps, std::size_t fidx);
     void recompute_frame_dur();
-    void record_phase_tick(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point anchor, float elapsed_s, long slot, long steps_i);
   };
 
   namespace {
@@ -936,43 +913,12 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.has_capture = true;
   }
 
-  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc, bool frame_dirty) {
+  void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc, bool /*frame_dirty*/) {
     auto &impl = *_impl;
     if (!impl.has_capture) {
       return;
     }
 
-    // TEMPORARY: force every frame dirty, disabling the DirtyRegionMode skip below
-    // (without removing it) while its reliability is still being confirmed.
-    constexpr bool kForceDirtyBypass = true;
-    if (kForceDirtyBypass) {
-      frame_dirty = true;
-    }
-
-    // Skip source rotation and the interval estimate for a compositor-only republish
-    // (DirtyRegionMode, Win11 24H2+), which would otherwise perturb src_interval and
-    // mistime the phase. Older Windows always reports dirty.
-    //
-    // Bounded to one skip in a row: DirtyRegionMode is unverified on the virtual/headless
-    // displays this project targets, and misreporting every frame non-dirty would stall
-    // frames_seen below 2 and silently disable generation entirely.
-    constexpr std::size_t kMaxConsecutiveDirtySkips = 1;
-    ++impl.commit_calls;
-    if (!frame_dirty) {
-      ++impl.dirty_skip_total;
-    }
-    if (impl.commit_calls % 300 == 0) {
-      BOOST_LOG(info) << "LSFG: commit_capture diagnostics: calls=" << impl.commit_calls
-                      << " dirty_skips=" << impl.dirty_skip_total
-                      << " (" << (100.0 * static_cast<double>(impl.dirty_skip_total) / static_cast<double>(impl.commit_calls)) << "%)"
-                      << " frames_seen=" << impl.frames_seen
-                      << " src_interval_ms=" << std::chrono::duration<double, std::milli>(impl.src_interval).count();
-    }
-    if (!frame_dirty && impl.consecutive_dirty_skips < kMaxConsecutiveDirtySkips) {
-      ++impl.consecutive_dirty_skips;
-      return;
-    }
-    impl.consecutive_dirty_skips = 0;
     impl.passthrough_dirty = true;
 
     const std::size_t new_idx = impl.frames_seen;  // 0-based index of this arrival
@@ -1042,7 +988,6 @@ float4 ps_main(VSOut i) : SV_Target {
     // one warp phase and dropping another slot, sometimes the real-frame slot.
     long slot = static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1;
     slot = std::clamp<long>(slot, 1, steps_i);
-    impl.record_phase_tick(now, impl.last_arrival, elapsed, slot, steps_i);
     if (slot >= steps_i) {
       return false;
     }
@@ -1070,67 +1015,6 @@ float4 ps_main(VSOut i) : SV_Target {
     if (options.target_fps > 0.0) {
       frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / options.target_fps));
     }
-  }
-
-  // TEMPORARY pacing instrumentation. A change in `anchor` (== last_arrival, only
-  // reassigned on a real arrival) marks the boundary of a new source interval.
-  void lsfg_framegen_t::impl_t::record_phase_tick(std::chrono::steady_clock::time_point now, std::chrono::steady_clock::time_point anchor, float elapsed_s, long slot, long steps_i) {
-    if (diag_have_last_anchor && anchor != diag_last_anchor) {
-      ++diag_intervals_closed;
-      if (diag_interval_ticks == 1) {
-        ++diag_single_tick_intervals;
-      }
-      if (diag_interval_showed_real) {
-        ++diag_intervals_real_shown;
-      }
-      diag_interval_ticks = 0;
-      diag_interval_showed_real = false;
-      diag_last_slot_in_interval = -1;
-    }
-    diag_last_anchor = anchor;
-    diag_have_last_anchor = true;
-
-    ++diag_ticks_total;
-    if (diag_interval_ticks == 0) {
-      diag_first_tick_elapsed_min = std::min(diag_first_tick_elapsed_min, elapsed_s);
-      diag_first_tick_elapsed_max = std::max(diag_first_tick_elapsed_max, elapsed_s);
-    }
-    ++diag_interval_ticks;
-
-    if (diag_last_slot_in_interval == slot) {
-      ++diag_duplicate_slot_count;
-    }
-    diag_last_slot_in_interval = slot;
-
-    const bool showed_real = slot >= steps_i;
-    if (showed_real) {
-      diag_interval_showed_real = true;
-      ++diag_passthrough_tick_count;
-    } else {
-      ++diag_generated_count;
-    }
-
-    if (!diag_have_last_log) {
-      diag_last_log = now;
-      diag_have_last_log = true;
-      return;
-    }
-    if (now - diag_last_log < 10s) {
-      return;
-    }
-    diag_last_log = now;
-
-    const double dup_pct = diag_ticks_total ? 100.0 * static_cast<double>(diag_duplicate_slot_count) / static_cast<double>(diag_ticks_total) : 0.0;
-    const double single_tick_pct = diag_intervals_closed ? 100.0 * static_cast<double>(diag_single_tick_intervals) / static_cast<double>(diag_intervals_closed) : 0.0;
-    const double real_shown_pct = diag_intervals_closed ? 100.0 * static_cast<double>(diag_intervals_real_shown) / static_cast<double>(diag_intervals_closed) : 0.0;
-    BOOST_LOG(info) << "LSFG pacing diagnostics: ticks=" << diag_ticks_total
-                    << " generated=" << diag_generated_count
-                    << " passthrough_ticks=" << diag_passthrough_tick_count
-                    << " intervals=" << diag_intervals_closed
-                    << " dup_slot=" << diag_duplicate_slot_count << " (" << dup_pct << "%)"
-                    << " single_tick_intervals=" << diag_single_tick_intervals << " (" << single_tick_pct << "%)"
-                    << " real_shown_intervals=" << diag_intervals_real_shown << " (" << real_shown_pct << "%)"
-                    << " first_tick_elapsed_ms=[" << (diag_first_tick_elapsed_min * 1000.0f) << ".." << (diag_first_tick_elapsed_max * 1000.0f) << "]";
   }
 
   void lsfg_framegen_t::update_live_options(int max_multiplier) {
