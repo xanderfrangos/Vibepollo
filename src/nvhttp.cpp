@@ -665,7 +665,7 @@ namespace nvhttp {
             base_vd_fps_millihz,
             framegen_refresh_active,
             refresh_multiplier,
-            launch_session->enable_hdr,
+            rtsp_stream::effective_hdr_requested(*launch_session),
             false,
             !shared_mode
           );
@@ -694,7 +694,7 @@ namespace nvhttp {
             recovery_params.base_fps_millihz = base_vd_fps_millihz;
             recovery_params.framegen_refresh_active = framegen_refresh_active;
             recovery_params.framegen_refresh_multiplier = refresh_multiplier;
-            recovery_params.hdr_requested = launch_session->enable_hdr;
+            recovery_params.hdr_requested = rtsp_stream::effective_hdr_requested(*launch_session);
             recovery_params.client_uid = display_uuid_source;
             recovery_params.client_name = client_label;
             recovery_params.hdr_profile = launch_session->hdr_profile;
@@ -1587,15 +1587,19 @@ namespace nvhttp {
       launch_session->surround_params = (get_arg(args, "surroundParams", ""));
       launch_session->gcmap = util::from_view(get_arg(args, "gcmap", "0"));
       launch_session->enable_hdr = util::from_view(get_arg(args, "hdrMode", "0"));
+      launch_session->prefer_sdr_10bit = named_cert_p->prefer_10bit_sdr.value_or(config::video.prefer_10bit_sdr);
 #ifdef _WIN32
       {
         using override_e = config::video_t::dd_t::hdr_request_override_e;
         switch (config::video.dd.hdr_request_override) {
           case override_e::force_on:
             launch_session->enable_hdr = true;
+            launch_session->prefer_sdr_10bit = false;
+            launch_session->force_sdr = false;
             break;
           case override_e::force_off:
             launch_session->enable_hdr = false;
+            launch_session->force_sdr = true;
             break;
           case override_e::automatic:
             break;
@@ -2947,7 +2951,7 @@ namespace nvhttp {
           }
 
 #ifdef _WIN32
-          rtsp_stream::set_vulkan_hdr_layer_pending_stream(launch_session->enable_hdr);
+          rtsp_stream::set_vulkan_hdr_layer_pending_stream(rtsp_stream::effective_hdr_requested(*launch_session));
 #endif
           auto err = proc::proc.execute(*app_iter, launch_session);
           if (err) {
