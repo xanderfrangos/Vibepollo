@@ -408,6 +408,7 @@ namespace platf::dxgi {
    * allowing screen capture even when running as a SYSTEM service.
    */
   class lsfg_framegen_t;
+  class lsfg_async_builder_t;
 
   class display_wgc_ipc_vram_t: public display_vram_t {
   public:
@@ -495,23 +496,25 @@ namespace platf::dxgi {
     std::shared_ptr<platf::img_t> _last_cached_frame;
     std::chrono::steady_clock::time_point _wgc_stall_start {};  ///< Start of the current frame-wait stall (zero when frames are flowing).
     std::chrono::steady_clock::time_point _last_secure_desktop_probe {};  ///< Last secure-desktop probe performed during a stall.
-    // Index zero preserves the user's configured quality. The remaining entries
-    // are prebuilt fallbacks, allowing a quality change at an output boundary
-    // without allocating shaders or textures on the capture thread.
-    std::vector<std::unique_ptr<lsfg_framegen_t>> _lsfg_variants;
-    std::size_t _lsfg_active_variant = 0;
+    // Only one pipeline is active during steady-state capture. Replacements are
+    // built off-thread and briefly warmed alongside it before an atomic boundary
+    // switch, avoiding permanent multi-pipeline GPU and VRAM overhead.
+    std::unique_ptr<lsfg_framegen_t> _lsfg;
+    std::unique_ptr<lsfg_framegen_t> _lsfg_pending;
+    std::unique_ptr<lsfg_async_builder_t> _lsfg_builder;
+    int _lsfg_quality_step = 0;
+    int _lsfg_pending_quality_step = 0;
     unsigned int _lsfg_over_budget_samples = 0;
     unsigned int _lsfg_recovery_samples = 0;
     std::chrono::steady_clock::time_point _lsfg_adaptation_log_at {};
     double _lsfg_last_generated_gpu_ms = -1.0;
     bool _lsfg_requested = false;  ///< Config asked for LSFG capture frame generation.
     bool _lsfg_failed = false;  ///< LSFG initialization failed; don't retry every frame.
-    // Options the LSFG variant set was built with, for diffing against live config::video.lsfg
-    // each capture tick so pipeline-affecting settings changes rebuild it in place mid-stream
-    // (see snapshot()). Individual scalars rather than lsfg_framegen_t::options_t since
-    // lsfg_framegen_t is only forward-declared here.
+    // Base options requested by the user. Adaptive steps are derived from these.
     float _lsfg_flow_scale = 1.0f;
     bool _lsfg_performance_mode = false;
+    std::uint32_t _lsfg_capture_width = 0;
+    std::uint32_t _lsfg_capture_height = 0;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {

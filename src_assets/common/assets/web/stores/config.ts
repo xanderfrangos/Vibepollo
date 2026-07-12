@@ -176,6 +176,7 @@ const defaultGroups = [
       lsfg_max_multiplier: 4,
       lsfg_performance_mode: false,
       lsfg_adaptive_quality: true,
+      lsfg_pacing_grace_ms: 0,
     },
   },
   {

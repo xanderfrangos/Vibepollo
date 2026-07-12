@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <future>
 #include <winsock2.h>
 #include <dxgi1_2.h>
 #include <optional>
@@ -103,6 +104,13 @@ namespace platf::dxgi {
       // the snapshot's CPU work.
       auto grace = std::chrono::milliseconds(6);
 
+      if (fills_every_slot) {
+        grace = std::chrono::milliseconds(std::clamp(config::video.lsfg.pacing_grace_ms, 0, 6));
+        if (grace == 0ms) {
+          return grace;
+        }
+      }
+
       if ((is_wgc_constant_mode() || fills_every_slot) && client_framerate > 0) {
         // In constant mode a timed-out zero-timeout snapshot forwards the
         // cached frame, so the pacing group must survive the full grace: the
@@ -115,7 +123,7 @@ namespace platf::dxgi {
         // ~2 ms of the slot for wait/scheduling overhead.
         const auto frame_interval = std::chrono::nanoseconds(std::chrono::seconds(1)) / client_framerate;
         const auto clamped = std::chrono::duration_cast<std::chrono::milliseconds>(frame_interval - std::chrono::milliseconds(2));
-        grace = std::clamp(clamped, std::chrono::milliseconds(1), grace);
+        grace = std::clamp(clamped, fills_every_slot ? std::chrono::milliseconds(0) : std::chrono::milliseconds(1), grace);
       }
 
       return grace;
@@ -165,27 +173,82 @@ namespace platf::dxgi {
     // 100% at 1920x1080 down to 50% at 3840x2160, linearly interpolated by total
     // pixel count and clamped at both ends so lower/higher resolutions still get
     // a usable flow scale instead of extrapolating past the configured range.
-    int auto_lsfg_flow_scale_percent(int width, int height) {
-      constexpr double k_min_pixels = 1920.0 * 1080.0;  // 100% flow scale
-      constexpr double k_max_pixels = 3840.0 * 2160.0;  // 50% flow scale
-      const double pixels = static_cast<double>(width) * static_cast<double>(height);
-      if (pixels <= k_min_pixels) {
-        return 100;
-      }
-      if (pixels >= k_max_pixels) {
-        return 50;
-      }
-      const double t = (pixels - k_min_pixels) / (k_max_pixels - k_min_pixels);
-      return static_cast<int>(std::lround(100.0 - t * 50.0));
-    }
-
-    int resolve_lsfg_base_flow_percent(int client_width, int client_height) {
-      if (config::video.lsfg.auto_flow_scale && client_width > 0 && client_height > 0) {
-        return auto_lsfg_flow_scale_percent(client_width, client_height);
+    int resolve_lsfg_base_flow_percent(int capture_width, int capture_height) {
+      if (config::video.lsfg.auto_flow_scale && capture_width > 0 && capture_height > 0) {
+        return lsfg_timing::automatic_flow_scale_percent(capture_width, capture_height);
       }
       return std::clamp(config::video.lsfg.flow_scale, 25, 100);
     }
+
+    double resolve_lsfg_target_fps(const ::video::config_t &stream_config) {
+      return lsfg_timing::target_fps(stream_config.framerate, stream_config.framerateX100);
+    }
+
+    lsfg_framegen_t::options_t make_lsfg_options(
+      const ::video::config_t &stream_config,
+      int capture_width,
+      int capture_height,
+      int quality_step
+    ) {
+      lsfg_framegen_t::options_t options;
+      const int base_flow = resolve_lsfg_base_flow_percent(capture_width, capture_height);
+      options.flow_scale = base_flow / 100.0f;
+      options.max_multiplier = config::video.lsfg.max_multiplier;
+      options.performance_mode = config::video.lsfg.performance_mode;
+      options.target_fps = resolve_lsfg_target_fps(stream_config);
+
+      if (quality_step >= 1) {
+        options.flow_scale = std::max(25, base_flow - 25) / 100.0f;
+      }
+      if (quality_step >= 2) {
+        if (config::video.lsfg.performance_mode) {
+          options.flow_scale = std::max(25, base_flow - 35) / 100.0f;
+        } else {
+          options.performance_mode = true;
+        }
+      }
+      return options;
+    }
+
+    bool same_lsfg_pipeline(const lsfg_framegen_t::options_t &a, const lsfg_framegen_t::options_t &b) {
+      return a.flow_scale == b.flow_scale && a.performance_mode == b.performance_mode;
+    }
   }  // namespace
+
+  class lsfg_async_builder_t {
+  public:
+    lsfg_async_builder_t(
+      ID3D11Device *device,
+      ID3D11DeviceContext *ctx,
+      std::uint32_t width,
+      std::uint32_t height,
+      DXGI_FORMAT format,
+      lsfg_framegen_t::options_t options,
+      int quality_step
+    ):
+        quality_step(quality_step) {
+      winrt::com_ptr<ID3D11Device> device_ref;
+      winrt::com_ptr<ID3D11DeviceContext> ctx_ref;
+      device_ref.copy_from(device);
+      ctx_ref.copy_from(ctx);
+      future = std::async(std::launch::async, [device_ref = std::move(device_ref), ctx_ref = std::move(ctx_ref), width, height, format, options = std::move(options)]() mutable {
+        return lsfg_framegen_t::create(device_ref.get(), ctx_ref.get(), width, height, format, options);
+      });
+    }
+
+    bool ready() const {
+      return future.valid() && future.wait_for(0ms) == std::future_status::ready;
+    }
+
+    std::unique_ptr<lsfg_framegen_t> take() {
+      return future.get();
+    }
+
+    int quality_step;
+
+  private:
+    mutable std::future<std::unique_ptr<lsfg_framegen_t>> future;
+  };
 
   display_wgc_ipc_vram_t::display_wgc_ipc_vram_t() = default;
 
@@ -212,7 +275,14 @@ namespace platf::dxgi {
     // the capture loop may pace above the host display's refresh rate.
     _lsfg_requested = config::video.lsfg.enabled;
     if (_lsfg_requested) {
-      pacing_allow_above_refresh = true;
+      // Do not lift the display-refresh pacing ceiling until a usable pipeline
+      // has consumed enough source history to generate. This also makes a
+      // missing/unsupported LSFG installation fall back to ordinary WGC pacing.
+      pacing_allow_above_refresh = false;
+      if (!lsfg_framegen_t::find_lossless_dll()) {
+        BOOST_LOG(warning) << "LSFG: Lossless.dll not found; continuing with ordinary WGC capture pacing";
+        _lsfg_failed = true;
+      }
     }
 
     const bool advanced_color_capture = is_hdr();
@@ -247,22 +317,61 @@ namespace platf::dxgi {
       return capture_e::reinit;
     }
 
-    // Hot-apply lsfg_capture_framegen toggling mid-stream. pacing_allow_above_refresh
-    // feeds display_base_t::capture()'s client_frame_rate_adjusted, which is computed
-    // once at the top of that function's long-running loop -- flipping the flag alone
-    // wouldn't change the active pacing ceiling until the loop restarts, so request a
-    // reinit, the same mechanism video.cpp already uses for other mid-stream settings
-    // changes (e.g. runtime bitrate). Other lsfg_* settings don't touch pacing and are
-    // hot-applied below without a reinit.
+    // Enabling/disabling changes capture ownership and is still handled through a
+    // clean reinit. Pipeline option changes below use asynchronous replacement.
     if (const bool lsfg_enabled_now = config::video.lsfg.enabled; lsfg_enabled_now != _lsfg_requested) {
       BOOST_LOG(info) << "LSFG: capture frame generation " << (lsfg_enabled_now ? "enabled" : "disabled") << " mid-stream; requesting capture reinit";
       _lsfg_requested = lsfg_enabled_now;
-      pacing_allow_above_refresh = lsfg_enabled_now;
+      pacing_allow_above_refresh = false;
       return capture_e::reinit;
     }
 
     const bool lsfg_wanted = _lsfg_requested && !_lsfg_failed;
-    timeout = effective_wgc_timeout(timeout, _config.framerate, lsfg_wanted);
+
+    auto accept_finished_build = [&]() {
+      if (!_lsfg_builder || !_lsfg_builder->ready()) {
+        return;
+      }
+      const int built_step = _lsfg_builder->quality_step;
+      auto built = _lsfg_builder->take();
+      _lsfg_builder.reset();
+      if (!built) {
+        if (!_lsfg) {
+          BOOST_LOG(warning) << "LSFG: asynchronous pipeline initialization failed; retaining ordinary WGC pacing";
+          _lsfg_failed = true;
+          pacing_allow_above_refresh = false;
+        } else {
+          BOOST_LOG(warning) << "LSFG: asynchronous replacement failed; retaining the active pipeline";
+        }
+        return;
+      }
+
+      built->update_live_options(config::video.lsfg.max_multiplier);
+
+      if (_lsfg) {
+        _lsfg_pending = std::move(built);
+        _lsfg_pending_quality_step = built_step;
+        BOOST_LOG(info) << "LSFG: replacement quality step " << built_step << " built; warming source history";
+      } else {
+        _lsfg = std::move(built);
+        _lsfg_quality_step = built_step;
+        _lsfg_flow_scale = make_lsfg_options(_config, _lsfg_capture_width, _lsfg_capture_height, 0).flow_scale;
+        _lsfg_performance_mode = config::video.lsfg.performance_mode;
+        BOOST_LOG(info) << "LSFG: asynchronous pipeline ready; warming source history";
+      }
+    };
+
+    accept_finished_build();
+    // The multiplier is genuinely live: apply it every capture tick rather
+    // than only when WGC publishes new content, including on a static screen.
+    if (_lsfg) {
+      _lsfg->update_live_options(config::video.lsfg.max_multiplier);
+    }
+    if (_lsfg_pending) {
+      _lsfg_pending->update_live_options(config::video.lsfg.max_multiplier);
+    }
+    const bool lsfg_filling_slots = _lsfg && _lsfg->distinct_frames_seen() >= 2;
+    timeout = effective_wgc_timeout(timeout, static_cast<int>(std::lround(resolve_lsfg_target_fps(_config))), lsfg_filling_slots);
 
     auto capture_status = _ipc_session->wait_for_frame(timeout);
     const bool have_new_frame = capture_status == capture_e::ok;
@@ -275,7 +384,7 @@ namespace platf::dxgi {
         note_wgc_desktop_switch();
         return capture_e::reinit;
       }
-      if (_lsfg_variants.empty() || !_lsfg_variants[_lsfg_active_variant]->has_frame()) {
+      if (!_lsfg || !_lsfg->has_frame()) {
         if (is_wgc_constant_mode()) {
           return forward_cached_wgc_frame(_last_cached_frame, img_out);
         }
@@ -313,84 +422,27 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Hot-apply mid-stream: rebuilding the prebuilt quality set occurs only when
-      // the user's base settings change. Adaptive changes below select an existing
-      // member of the set at an output boundary and never allocate in that path.
-      if (!_lsfg_variants.empty()) {
-        const auto desired_flow_scale = resolve_lsfg_base_flow_percent(_config.width, _config.height) / 100.0f;
-        const auto desired_performance_mode = config::video.lsfg.performance_mode;
-        if (desired_flow_scale != _lsfg_flow_scale || desired_performance_mode != _lsfg_performance_mode) {
-          BOOST_LOG(info) << "LSFG: base pipeline options changed mid-stream; rebuilding adaptive variant set";
-          _lsfg_variants.clear();
-          _lsfg_active_variant = 0;
-          _lsfg_over_budget_samples = 0;
-          _lsfg_recovery_samples = 0;
-          _lsfg_last_generated_gpu_ms = -1.0;
-        } else {
-          for (auto &variant : _lsfg_variants) {
-            variant->update_live_options(config::video.lsfg.max_multiplier);
-          }
-        }
-      }
+      _lsfg_capture_width = desc.Width;
+      _lsfg_capture_height = desc.Height;
 
-      // Create the user's configured pipeline followed by exactly two lower-cost
-      // variants. For a base 85% quality profile this yields 60% quality, then
-      // 60% performance. If the base already uses performance shaders, the final
-      // step instead uses 50% performance.
-      if (lsfg_wanted && _lsfg_variants.empty()) {
-        lsfg_framegen_t::options_t base_options;
-        const int base_flow_percent = resolve_lsfg_base_flow_percent(_config.width, _config.height);
-        base_options.flow_scale = base_flow_percent / 100.0f;
-        base_options.max_multiplier = config::video.lsfg.max_multiplier;
-        base_options.performance_mode = config::video.lsfg.performance_mode;
-        if (_config.framerate > 0) {
-          base_options.target_fps = _config.framerate;
-        } else if (_config.framerateX100 > 0) {
-          base_options.target_fps = _config.framerateX100 / 100.0;
+      const auto desired_base = make_lsfg_options(_config, desc.Width, desc.Height, 0);
+      const bool base_changed = _lsfg &&
+                                (desired_base.flow_scale != _lsfg_flow_scale ||
+                                 desired_base.performance_mode != _lsfg_performance_mode);
+      if (lsfg_wanted && !_lsfg_builder && !_lsfg_pending && (!_lsfg || base_changed)) {
+        if (base_changed) {
+          BOOST_LOG(info) << "LSFG: base options changed; building replacement asynchronously";
         }
-
-        std::array<lsfg_framegen_t::options_t, 3> variant_options {};
-        variant_options[0] = base_options;
-        variant_options[1] = base_options;
-        variant_options[1].flow_scale = std::max(25, base_flow_percent - 25) / 100.0f;
-        variant_options[2] = variant_options[1];
-        if (base_options.performance_mode) {
-          variant_options[2].flow_scale = std::max(25, base_flow_percent - 35) / 100.0f;
-        } else {
-          variant_options[2].performance_mode = true;
-        }
-
-        std::vector<std::unique_ptr<lsfg_framegen_t>> variants;
-        variants.reserve(variant_options.size());
-        for (const auto &options : variant_options) {
-          auto variant = lsfg_framegen_t::create(device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, options);
-          if (!variant) {
-            break;
-          }
-          variants.push_back(std::move(variant));
-        }
-        if (!variants.empty()) {
-          _lsfg_variants = std::move(variants);
-          _lsfg_active_variant = 0;
-          _lsfg_over_budget_samples = 0;
-          _lsfg_recovery_samples = 0;
-          _lsfg_last_generated_gpu_ms = -1.0;
-          _lsfg_flow_scale = base_options.flow_scale;
-          _lsfg_performance_mode = base_options.performance_mode;
-          if (_lsfg_variants.size() == variant_options.size()) {
-            BOOST_LOG(info) << "LSFG: prebuilt " << _lsfg_variants.size() << " adaptive quality variants";
-          } else {
-            BOOST_LOG(warning) << "LSFG: only " << _lsfg_variants.size()
-                               << " of " << variant_options.size()
-                               << " adaptive quality variants could be allocated";
-          }
-        } else {
-          _lsfg_failed = true;
-        }
+        _lsfg_builder = std::make_unique<lsfg_async_builder_t>(
+          device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, desired_base, 0
+        );
+        _lsfg_flow_scale = desired_base.flow_scale;
+        _lsfg_performance_mode = desired_base.performance_mode;
       }
     }
 
-    if (!_lsfg_variants.empty()) {
+    accept_finished_build();
+    if (_lsfg && (_lsfg->has_frame() || have_new_frame)) {
       return snapshot_lsfg(pull_free_image_cb, img_out, have_new_frame);
     }
 
@@ -487,47 +539,56 @@ namespace platf::dxgi {
   }
 
   capture_e display_wgc_ipc_vram_t::snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame) {
-    if (_lsfg_variants.empty() || _lsfg_active_variant >= _lsfg_variants.size()) {
+    if (!_lsfg) {
       return capture_e::error;
     }
 
-    // Leave one quarter of every requested output interval for the source copy,
-    // optical-flow pre-pass, encoder and scheduler. Neither query path flushes
-    // nor waits for the GPU, so adaptation cannot introduce a capture hitch.
-    auto &timed_variant = *_lsfg_variants[_lsfg_active_variant];
-    const auto gpu_time = timed_variant.poll_generated_gpu_time();
-    const auto frame_budget = timed_variant.target_frame_duration() * 3 / 4;
+    auto &lsfg = *_lsfg;
+    const auto gpu_time = lsfg.poll_generated_gpu_time();
+    const auto frame_budget = lsfg.target_frame_duration() * 3 / 4;
     if (gpu_time) {
       _lsfg_last_generated_gpu_ms = std::chrono::duration<double, std::milli>(*gpu_time).count();
     }
     const auto now = std::chrono::steady_clock::now();
-    const bool timing_backlogged = timed_variant.generated_gpu_timing_backlogged();
-    const bool gpu_work_overdue = timed_variant.gpu_work_overdue(now, frame_budget);
+    const bool timing_backlogged = lsfg.generated_gpu_timing_backlogged();
+    const bool gpu_work_overdue = lsfg.gpu_work_overdue(now, frame_budget);
     const bool adaptive_quality = config::video.lsfg.adaptive_quality;
 
+    auto request_quality_step = [&](int desired_step) {
+      if (_lsfg_builder || _lsfg_pending || desired_step < 0 || desired_step > 2 || desired_step == _lsfg_quality_step) {
+        return;
+      }
+      const auto current_options = make_lsfg_options(_config, _lsfg_capture_width, _lsfg_capture_height, _lsfg_quality_step);
+      const auto desired_options = make_lsfg_options(_config, _lsfg_capture_width, _lsfg_capture_height, desired_step);
+      if (same_lsfg_pipeline(current_options, desired_options)) {
+        _lsfg_quality_step = desired_step;
+        return;
+      }
+      _lsfg_builder = std::make_unique<lsfg_async_builder_t>(
+        device.get(), device_ctx.get(), _lsfg_capture_width, _lsfg_capture_height, capture_format, desired_options, desired_step
+      );
+      BOOST_LOG(info) << "LSFG: building adaptive quality step " << desired_step << " asynchronously";
+    };
+
     if (!adaptive_quality) {
-      _lsfg_active_variant = 0;
       _lsfg_over_budget_samples = 0;
       _lsfg_recovery_samples = 0;
+      request_quality_step(0);
     } else if (gpu_work_overdue || timing_backlogged || (gpu_time && *gpu_time >= frame_budget)) {
       _lsfg_recovery_samples = 0;
-      if (++_lsfg_over_budget_samples >= 4 && _lsfg_active_variant + 1 < _lsfg_variants.size()) {
-        ++_lsfg_active_variant;
+      if (++_lsfg_over_budget_samples >= 4 && _lsfg_quality_step < 2) {
+        request_quality_step(_lsfg_quality_step + 1);
         _lsfg_over_budget_samples = 0;
-        BOOST_LOG(warning) << "LSFG: generated-frame GPU budget exceeded; selecting adaptive quality step "
-                           << _lsfg_active_variant;
       }
     } else if (gpu_time) {
       _lsfg_over_budget_samples = 0;
       // Quality recovery is deliberately much slower than degradation. Requiring
       // 240 comfortably-under-budget generated frames avoids oscillation when a
       // game alternates between light and heavy scenes.
-      if (_lsfg_active_variant > 0 && *gpu_time * 2 <= frame_budget) {
+      if (_lsfg_quality_step > 0 && *gpu_time * 2 <= frame_budget) {
         if (++_lsfg_recovery_samples >= 240) {
-          --_lsfg_active_variant;
+          request_quality_step(_lsfg_quality_step - 1);
           _lsfg_recovery_samples = 0;
-          BOOST_LOG(info) << "LSFG: sustained GPU headroom; restoring adaptive quality step "
-                          << _lsfg_active_variant;
         }
       } else {
         _lsfg_recovery_samples = 0;
@@ -536,21 +597,18 @@ namespace platf::dxgi {
 
     if (now - _lsfg_adaptation_log_at >= 10s) {
       BOOST_LOG(debug) << "LSFG adaptive quality: enabled=" << (adaptive_quality ? "yes" : "no")
-                       << " step=" << _lsfg_active_variant
-                       << " variants=" << _lsfg_variants.size()
+                       << " step=" << _lsfg_quality_step
+                       << " replacement_pending=" << ((_lsfg_builder || _lsfg_pending) ? "yes" : "no")
                        << " tail_gpu_ms=" << _lsfg_last_generated_gpu_ms
-                       << " pending_fences=" << timed_variant.pending_gpu_work_fences()
+                       << " pending_fences=" << lsfg.pending_gpu_work_fences()
                        << " work_overdue=" << (gpu_work_overdue ? "yes" : "no")
                        << " timing_backlogged=" << (timing_backlogged ? "yes" : "no")
                        << " over_budget_samples=" << _lsfg_over_budget_samples;
       _lsfg_adaptation_log_at = now;
     }
 
-    auto &lsfg = *_lsfg_variants[_lsfg_active_variant];
-
     // Stage the fresh helper frame while its keyed mutex is held, then release it
-    // immediately. Interpolated slots commit the capture only after rendering so
-    // the optical-flow history still matches the source pair used by this slot.
+    // immediately. A replacement is fed only during its short warm-up window.
     uint64_t staged_frame_qpc = 0;
     bool staged_capture = false;
     if (have_new_frame) {
@@ -560,11 +618,9 @@ namespace platf::dxgi {
         return capture_status;
       }
       _frame_locked = true;
-      // Each prebuilt variant receives the same source stream. Keeping their
-      // optical-flow histories warm makes a later quality change a selection,
-      // rather than a resource build or cold-start on the capture thread.
-      for (auto &variant : _lsfg_variants) {
-        variant->stage_capture(gpu_tex.get());
+      lsfg.stage_capture(gpu_tex.get());
+      if (_lsfg_pending) {
+        _lsfg_pending->stage_capture(gpu_tex.get());
       }
       _ipc_session->release();
       _frame_locked = false;
@@ -573,8 +629,9 @@ namespace platf::dxgi {
 
     auto commit_staged_capture = [&]() {
       if (staged_capture) {
-        for (auto &variant : _lsfg_variants) {
-          variant->commit_capture(staged_frame_qpc);
+        lsfg.commit_capture(staged_frame_qpc);
+        if (_lsfg_pending) {
+          _lsfg_pending->commit_capture(staged_frame_qpc);
         }
         staged_capture = false;
       }
@@ -592,14 +649,25 @@ namespace platf::dxgi {
     const auto output_slot = pacing_slot_timestamp.value_or(std::chrono::steady_clock::now());
     float phase = 0.0f;
     const bool generate = lsfg.want_generated(output_slot, phase);
-    // Advance every inactive variant's presentation clock at this same slot.
-    // This preserves phase continuity when an adaptive selection is made.
-    for (std::size_t i = 0; i < _lsfg_variants.size(); ++i) {
-      if (i != _lsfg_active_variant) {
-        float unused_phase = 0.0f;
-        _lsfg_variants[i]->want_generated(output_slot, unused_phase);
-      }
+    if (_lsfg_pending && _lsfg_pending->distinct_frames_seen() >= 2) {
+      float unused_phase = 0.0f;
+      _lsfg_pending->want_generated(output_slot, unused_phase);
     }
+
+    auto finish_slot = [&]() {
+      commit_staged_capture();
+      if (adaptive_quality) {
+        lsfg.submit_gpu_work_fence();
+      }
+      if (_lsfg_pending && _lsfg_pending->distinct_frames_seen() >= 2) {
+        _lsfg = std::move(_lsfg_pending);
+        _lsfg_quality_step = _lsfg_pending_quality_step;
+        _lsfg_over_budget_samples = 0;
+        _lsfg_recovery_samples = 0;
+        BOOST_LOG(info) << "LSFG: activated warmed quality step " << _lsfg_quality_step;
+      }
+      pacing_allow_above_refresh = _lsfg && _lsfg->distinct_frames_seen() >= 2;
+    };
 
     // Requested FPS is a ceiling, not a floor: with nothing new to show, return
     // no_new_content (routine pacing slack, distinct from a timeout stall) rather
@@ -612,10 +680,7 @@ namespace platf::dxgi {
     // arrival alone force that frame through early, or fractional conversions
     // such as 33 -> 60 reintroduce the cadence jitter the timeline removes.
     if (!generate && !passthrough_pending) {
-      commit_staged_capture();
-      if (adaptive_quality) {
-        lsfg.submit_gpu_work_fence();
-      }
+      finish_slot();
       return capture_e::no_new_content;
     }
 
@@ -631,46 +696,48 @@ namespace platf::dxgi {
       return capture_e::error;
     }
 
-    HRESULT status = d3d_img->capture_mutex->AcquireSync(0, 3000);
-    if (status == WAIT_ABANDONED) {
-      BOOST_LOG(error) << "Capture texture keyed mutex was abandoned; continuing with lock held";
-    } else if (status != S_OK) {
-      BOOST_LOG(error) << "Failed to lock capture texture [0x"sv << util::hex(status).to_string_view() << ']';
-      commit_staged_capture();
-      return capture_e::error;
-    }
-
-    auto release_capture_mutex = util::fail_guard([&]() {
-      const HRESULT release_status = d3d_img->capture_mutex->ReleaseSync(0);
-      if (FAILED(release_status)) {
-        BOOST_LOG(warning) << "Failed to release capture texture mutex [0x"sv << util::hex(release_status).to_string_view() << ']';
+    {
+      HRESULT status = d3d_img->capture_mutex->AcquireSync(0, 3000);
+      if (status == WAIT_ABANDONED) {
+        BOOST_LOG(error) << "Capture texture keyed mutex was abandoned; continuing with lock held";
+      } else if (status != S_OK) {
+        BOOST_LOG(error) << "Failed to lock capture texture [0x"sv << util::hex(status).to_string_view() << ']';
+        commit_staged_capture();
+        return capture_e::error;
       }
-    });
 
-    bool wrote_generated = false;
-    if (generate) {
-      wrote_generated = lsfg.render_generated(phase, d3d_img->capture_rt.get(), d3d_img->width, d3d_img->height);
-    }
-    if (wrote_generated) {
-      lsfg.mark_generated_shown();
-    } else {
-      device_ctx->CopyResource(d3d_img->capture_texture.get(), lsfg.passthrough_texture());
-      lsfg.mark_passthrough_shown();
-    }
-    d3d_img->blank = false;
+      auto release_capture_mutex = util::fail_guard([&]() {
+        const HRESULT release_status = d3d_img->capture_mutex->ReleaseSync(0);
+        if (FAILED(release_status)) {
+          BOOST_LOG(warning) << "Failed to release capture texture mutex [0x"sv << util::hex(release_status).to_string_view() << ']';
+        }
+      });
 
+      bool wrote_generated = false;
+      if (generate) {
+        wrote_generated = lsfg.render_generated(phase, d3d_img->capture_rt.get(), d3d_img->width, d3d_img->height);
+      }
+      if (wrote_generated) {
+        lsfg.mark_generated_shown();
+      } else {
+        device_ctx->CopyResource(d3d_img->capture_texture.get(), lsfg.passthrough_texture());
+        lsfg.mark_passthrough_shown();
+      }
+      d3d_img->blank = false;
+    }
+
+    // Preserve the nominal presentation grid for RTP/pacing, but record the
+    // actual host-processing time so latency telemetry includes capture waits.
+    const auto host_processing_timestamp = std::chrono::steady_clock::now();
     img->frame_timestamp = output_slot;
-    img->host_processing_timestamp = output_slot;
+    img->host_processing_timestamp = host_processing_timestamp;
     img->capture_pacing_timestamp = output_slot;
     img_out = img;
     _last_cached_frame = img;
 
-    commit_staged_capture();
-    if (adaptive_quality) {
-      // This comes after staged source commits, so its completion represents the
-      // full LSFG GPU workload for this slot, not only the generated-frame tail.
-      lsfg.submit_gpu_work_fence();
-    }
+    // The encoder image mutex has already been released. Queue next-pair optical
+    // flow only now so unrelated prepass work cannot delay encoder ownership.
+    finish_slot();
     return capture_e::ok;
   }
 

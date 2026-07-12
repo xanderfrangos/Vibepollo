@@ -25,6 +25,13 @@
 
 namespace platf::dxgi {
 
+  namespace lsfg_timing {
+    bool accept_source_qpc(std::uint64_t last_qpc, std::uint64_t candidate_qpc) noexcept;
+    bool update_generation_active(bool currently_active, double source_ratio) noexcept;
+    int automatic_flow_scale_percent(int width, int height) noexcept;
+    double target_fps(int framerate, int framerate_x100) noexcept;
+  }  // namespace lsfg_timing
+
   /**
    * @brief Adaptive-mode LSFG interpolator for a capture backend.
    *
@@ -39,7 +46,7 @@ namespace platf::dxgi {
   public:
     struct options_t {
       float flow_scale = 1.0f;  ///< Optical-flow resolution scale, 0.25..1.0.
-      int max_multiplier = 4;  ///< Adaptive phase cap (max output/input frame ratio honored).
+      int max_multiplier = 4;  ///< Adaptive phase cap (max output/input frame ratio honored, 2..10).
       double target_fps = 60.0;  ///< Client-requested stream FPS (interpolation target).
       /// Use Lossless Scaling's "performance" optical-flow shader set instead of "quality".
       /// Lighter/faster (fewer temporal-history texture bindings per shader), lower visual
@@ -157,7 +164,7 @@ namespace platf::dxgi {
      * (flow_scale, performance_mode) is baked into fixed-size textures and
      * shader/dispatch selection at create() time; changing those requires
      * destroying and recreating the whole lsfg_framegen_t instance instead.
-     * @param max_multiplier New adaptive phase cap (clamped 2..20, as in create()).
+     * @param max_multiplier New adaptive phase cap (clamped 2..10, as in create()).
      */
     void update_live_options(int max_multiplier);
 
@@ -178,6 +185,9 @@ namespace platf::dxgi {
      * @brief Whether at least one frame has been captured (latest_texture() is valid).
      */
     bool has_frame() const;
+
+    /** @brief Number of distinct, monotonically timestamped source frames consumed. */
+    std::size_t distinct_frames_seen() const;
 
     /**
      * @brief Whether the current output decision permits a real-frame pass-through.

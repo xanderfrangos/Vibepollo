@@ -2686,10 +2686,10 @@ editing the `conf` file in a text editor. Use the examples as reference.
     <tr>
         <td>Description</td>
         <td colspan="2">
-            Derives `lsfg_flow_scale` from the connecting client's requested stream resolution
+            Derives `lsfg_flow_scale` from the actual captured source resolution
             instead of using the fixed value: 100% at 1920x1080 scaling down to 50% at 3840x2160,
             linearly interpolated by total pixel count and clamped at both ends. Recalculated
-            whenever a client connects; overrides `lsfg_flow_scale` while enabled.
+            whenever capture starts; overrides `lsfg_flow_scale` while enabled.
             @note{Applies to Windows only.}
         </td>
     </tr>
@@ -2716,7 +2716,7 @@ editing the `conf` file in a text editor. Use the examples as reference.
             Caps how far `lsfg_capture_framegen` interpolates when the source stalls or runs very
             slowly, expressed as the maximum output/source frame ratio. Past the cap the newest real
             frame is held until the next source frame arrives.
-            @note{Applies to Windows only. Range 2-20.}
+            @note{Applies to Windows only. Range 2-10.}
         </td>
     </tr>
     <tr>
@@ -2755,6 +2755,47 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>Example</td>
         <td colspan="2">@code{}
             lsfg_performance_mode = enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_adaptive_quality
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Builds a lower-cost LSFG pipeline asynchronously when the active pipeline exceeds
+            its GPU budget, warms it with two source frames, and switches at an output boundary.
+            Only one pipeline runs during steady-state capture. Quality is restored after sustained
+            GPU headroom.
+            @note{Applies to Windows only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_pacing_grace_ms
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Maximum time an LSFG output slot waits for a late real WGC frame before generating.
+            Zero produces the most even output cadence. Values of 1-2 ms can reduce source-frame
+            latency in some workloads, but may introduce uneven frame delivery or judder.
+            @note{Applies to Windows only. Range 0-6.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            0
             @endcode</td>
     </tr>
 </table>

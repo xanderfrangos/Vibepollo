@@ -21,6 +21,7 @@
 // standard includes
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -35,6 +36,7 @@
 #include "src/platform/windows/lsfg_framegen.h"
 #include "src/platform/windows/misc.h"
 #include "src/utility.h"
+#include "src/video.h"
 
 // platform includes (after local so winsock ordering stays intact)
 #include <winrt/base.h>
@@ -42,6 +44,42 @@
 namespace platf::dxgi {
 
   using namespace std::chrono_literals;
+
+  namespace lsfg_timing {
+    bool accept_source_qpc(std::uint64_t last_qpc, std::uint64_t candidate_qpc) noexcept {
+      return candidate_qpc == 0 || last_qpc == 0 || candidate_qpc > last_qpc;
+    }
+
+    bool update_generation_active(bool currently_active, double source_ratio) noexcept {
+      constexpr double enter_generation_ratio = 1.05;
+      constexpr double leave_generation_ratio = 1.025;
+      return currently_active ? source_ratio > leave_generation_ratio : source_ratio >= enter_generation_ratio;
+    }
+
+    int automatic_flow_scale_percent(int width, int height) noexcept {
+      constexpr double min_pixels = 1920.0 * 1080.0;
+      constexpr double max_pixels = 3840.0 * 2160.0;
+      const double pixels = static_cast<double>(width) * static_cast<double>(height);
+      if (pixels <= min_pixels) {
+        return 100;
+      }
+      if (pixels >= max_pixels) {
+        return 50;
+      }
+      const double t = (pixels - min_pixels) / (max_pixels - min_pixels);
+      return static_cast<int>(std::lround(100.0 - t * 50.0));
+    }
+
+    double target_fps(int framerate, int framerate_x100) noexcept {
+      if (framerate_x100 > 0) {
+        const auto fps = ::video::framerateX100_to_rational(framerate_x100);
+        if (fps.num > 0 && fps.den > 0) {
+          return static_cast<double>(fps.num) / fps.den;
+        }
+      }
+      return framerate > 0 ? static_cast<double>(framerate) : 60.0;
+    }
+  }  // namespace lsfg_timing
 
   namespace {
 
@@ -933,7 +971,7 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.hdr = hdr;
     impl.options = options;
     impl.options.flow_scale = std::clamp(options.flow_scale, 0.25f, 1.0f);
-    impl.options.max_multiplier = std::clamp(options.max_multiplier, 2, 20);
+    impl.options.max_multiplier = std::clamp(options.max_multiplier, 2, 10);
     impl.inv_flow = 1.0f / impl.options.flow_scale;
     impl.recompute_frame_dur();
     impl.pool_size = 2;
@@ -990,7 +1028,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
     // WGC can publish the same helper frame more than once. Do not rotate the
     // source ring or feed it into temporal optical-flow history as new motion.
-    if (frame_qpc != 0 && frame_qpc == impl.last_distinct_qpc) {
+    if (!lsfg_timing::accept_source_qpc(impl.last_distinct_qpc, frame_qpc)) {
       return;
     }
 
@@ -1052,15 +1090,7 @@ float4 ps_main(VSOut i) : SV_Target {
     // Do not turn a 59 -> 60 stream into a lower-latency-but-artifact-prone
     // interpolation stream. The separate enter/exit thresholds prevent normal
     // WGC timing noise from toggling frame generation every few captures.
-    constexpr double enter_generation_ratio = 1.05;
-    constexpr double leave_generation_ratio = 1.025;
-    if (impl.generation_active) {
-      if (source_ratio <= leave_generation_ratio) {
-        impl.generation_active = false;
-      }
-    } else if (source_ratio >= enter_generation_ratio) {
-      impl.generation_active = true;
-    }
+    impl.generation_active = lsfg_timing::update_generation_active(impl.generation_active, source_ratio);
 
     if (!impl.generation_active) {
       impl.presentation_output_origin.reset();
@@ -1104,6 +1134,7 @@ float4 ps_main(VSOut i) : SV_Target {
       impl.presentation_media_origin = impl.previous_arrival;
     }
     const auto presentation_time = *impl.presentation_media_origin + (now - *impl.presentation_output_origin);
+
     if (impl.last_presented_media_time && presentation_time <= *impl.last_presented_media_time) {
       impl.emit_passthrough = false;
       return false;
@@ -1273,7 +1304,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
   void lsfg_framegen_t::update_live_options(int max_multiplier) {
     auto &impl = *_impl;
-    impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
+    impl.options.max_multiplier = std::clamp(max_multiplier, 2, 10);
   }
 
   ID3D11Texture2D *lsfg_framegen_t::latest_texture() const {
@@ -1291,6 +1322,10 @@ float4 ps_main(VSOut i) : SV_Target {
 
   bool lsfg_framegen_t::has_frame() const {
     return _impl->has_capture;
+  }
+
+  std::size_t lsfg_framegen_t::distinct_frames_seen() const {
+    return _impl->frames_seen;
   }
 
   bool lsfg_framegen_t::has_new_passthrough_frame() const {
