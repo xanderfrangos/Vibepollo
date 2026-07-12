@@ -58,8 +58,8 @@ describe('configFieldSchema', () => {
     expect(
       getConfigFieldDefinition('lsfg_adaptive_quality', {
         ...baseContext,
-        defaultValue: true,
-        currentValue: true,
+        defaultValue: false,
+        currentValue: false,
       }).kind,
     ).toBe('switch');
   });

@@ -872,7 +872,7 @@ namespace config {
       true,  // lsfg.auto_flow_scale
       4,  // lsfg.max_multiplier
       false,  // lsfg.performance_mode
-      true,  // lsfg.adaptive_quality
+      false,  // lsfg.adaptive_quality
       0,  // lsfg.pacing_grace_ms
     },  // lsfg
   };
