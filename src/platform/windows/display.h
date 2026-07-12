@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 // platform includes
 #include <winsock2.h>
@@ -192,6 +193,16 @@ namespace platf::dxgi {
 
     int client_frame_rate {};
     DXGI_RATIONAL client_frame_rate_strict {0, 0};
+
+    // Frame generation can pace output above the host display's refresh rate:
+    // the source only delivers frames at the compositor rate, but generated
+    // in-between frames fill the remaining pacing slots.
+    bool pacing_allow_above_refresh {false};
+
+    // Exact target of the current zero-timeout pacing tick. LSFG uses this
+    // instead of post-wake wall-clock time so scheduling jitter cannot change
+    // the interpolation phase.
+    std::optional<std::chrono::steady_clock::time_point> pacing_slot_timestamp;
 
     DXGI_FORMAT capture_format;
     D3D_FEATURE_LEVEL feature_level;
@@ -396,6 +407,9 @@ namespace platf::dxgi {
    * This backend utilizes a separate capture process and synchronizes frames to Sunshine,
    * allowing screen capture even when running as a SYSTEM service.
    */
+  class lsfg_framegen_t;
+  class lsfg_async_builder_t;
+
   class display_wgc_ipc_vram_t: public display_vram_t {
   public:
     /**
@@ -465,6 +479,15 @@ namespace platf::dxgi {
     capture_e release_snapshot() override;
 
   private:
+    /**
+     * @brief Produce a frame for the current pacing slot with LSFG frame generation active.
+     * @param pull_free_image_cb Callback to pull a free image buffer.
+     * @param img_out Output parameter for the produced image.
+     * @param have_new_frame True when wait_for_frame() reported a fresh helper frame to consume.
+     * @return Status of the capture operation.
+     */
+    capture_e snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame);
+
     std::unique_ptr<class ipc_session_t> _ipc_session;
     ::video::config_t _config;
     std::string _display_name;
@@ -473,6 +496,25 @@ namespace platf::dxgi {
     std::shared_ptr<platf::img_t> _last_cached_frame;
     std::chrono::steady_clock::time_point _wgc_stall_start {};  ///< Start of the current frame-wait stall (zero when frames are flowing).
     std::chrono::steady_clock::time_point _last_secure_desktop_probe {};  ///< Last secure-desktop probe performed during a stall.
+    // Only one pipeline is active during steady-state capture. Replacements are
+    // built off-thread and briefly warmed alongside it before an atomic boundary
+    // switch, avoiding permanent multi-pipeline GPU and VRAM overhead.
+    std::unique_ptr<lsfg_framegen_t> _lsfg;
+    std::unique_ptr<lsfg_framegen_t> _lsfg_pending;
+    std::unique_ptr<lsfg_async_builder_t> _lsfg_builder;
+    int _lsfg_quality_step = 0;
+    int _lsfg_pending_quality_step = 0;
+    unsigned int _lsfg_over_budget_samples = 0;
+    unsigned int _lsfg_recovery_samples = 0;
+    std::chrono::steady_clock::time_point _lsfg_adaptation_log_at {};
+    double _lsfg_last_generated_gpu_ms = -1.0;
+    bool _lsfg_requested = false;  ///< Config asked for LSFG capture frame generation.
+    bool _lsfg_failed = false;  ///< LSFG initialization failed; don't retry every frame.
+    // Base options requested by the user. Adaptive steps are derived from these.
+    float _lsfg_flow_scale = 1.0f;
+    bool _lsfg_performance_mode = false;
+    std::uint32_t _lsfg_capture_width = 0;
+    std::uint32_t _lsfg_capture_height = 0;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {

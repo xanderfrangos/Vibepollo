@@ -865,6 +865,16 @@ namespace config {
     true,  // wgc_pacing_smoothing
     "1920x1080x60",  // fallback_mode
     false,  // ignore_encoder_probe_failure
+
+    {
+      false,  // lsfg.enabled
+      100,  // lsfg.flow_scale
+      true,  // lsfg.auto_flow_scale
+      4,  // lsfg.max_multiplier
+      false,  // lsfg.performance_mode
+      true,  // lsfg.adaptive_quality
+      0,  // lsfg.pacing_grace_ms
+    },  // lsfg
   };
 
   audio_t audio {
@@ -1667,6 +1677,13 @@ namespace config {
 
     string_f(vars, "capture", video.capture);
     bool_f(vars, "wgc_pacing_smoothing", video.wgc_pacing_smoothing);
+    bool_f(vars, "lsfg_capture_framegen", video.lsfg.enabled);
+    int_between_f(vars, "lsfg_flow_scale", video.lsfg.flow_scale, {25, 100});
+    bool_f(vars, "lsfg_auto_flow_scale", video.lsfg.auto_flow_scale);
+    int_between_f(vars, "lsfg_max_multiplier", video.lsfg.max_multiplier, {2, 10});
+    bool_f(vars, "lsfg_performance_mode", video.lsfg.performance_mode);
+    bool_f(vars, "lsfg_adaptive_quality", video.lsfg.adaptive_quality);
+    int_between_f(vars, "lsfg_pacing_grace_ms", video.lsfg.pacing_grace_ms, {0, 6});
     string_f(vars, "encoder", video.encoder);
     string_f(vars, "adapter_name", video.adapter_name);
     string_f(vars, "output_name", video.output_name);
@@ -2329,6 +2346,13 @@ namespace config {
         "dd_wa_dummy_plug_hdr10",
         "max_bitrate",
         "minimum_fps_target",
+        "lsfg_capture_framegen",
+        "lsfg_flow_scale",
+        "lsfg_auto_flow_scale",
+        "lsfg_max_multiplier",
+        "lsfg_performance_mode",
+        "lsfg_adaptive_quality",
+        "lsfg_pacing_grace_ms",
 
         // Codec / capture negotiation
         "fec_percentage",

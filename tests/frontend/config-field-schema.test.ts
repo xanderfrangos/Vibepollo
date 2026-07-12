@@ -53,4 +53,44 @@ describe('configFieldSchema', () => {
       }).kind,
     ).toBe('checkbox');
   });
+
+  test('renders adaptive LSFG quality as a switch', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_adaptive_quality', {
+        ...baseContext,
+        defaultValue: true,
+        currentValue: true,
+      }).kind,
+    ).toBe('switch');
+  });
+
+  test('renders automatic LSFG flow scale as a switch', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_auto_flow_scale', {
+        ...baseContext,
+        defaultValue: true,
+        currentValue: true,
+      }).kind,
+    ).toBe('switch');
+  });
+
+  test('constrains LSFG pacing grace to its safe range', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_pacing_grace_ms', {
+        ...baseContext,
+        currentValue: 0,
+        defaultValue: 0,
+      }),
+    ).toMatchObject({ kind: 'slider', min: 0, max: 6, step: 1, precision: 0 });
+  });
+
+  test('renders LSFG maximum multiplier as a 2-10 slider', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_max_multiplier', {
+        ...baseContext,
+        currentValue: 4,
+        defaultValue: 4,
+      }),
+    ).toMatchObject({ kind: 'slider', min: 2, max: 10, step: 1, precision: 0 });
+  });
 });

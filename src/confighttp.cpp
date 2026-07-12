@@ -431,6 +431,13 @@ namespace confighttp {
           continue;
         }
 
+        if (key.rfind("lsfg_", 0) == 0) {
+          // LSFG settings hot-apply mid-stream: scalar options update directly,
+          // while pipeline-affecting options build and warm an asynchronous
+          // replacement. Enabling/disabling still requests a clean capture reinit.
+          continue;
+        }
+
         if (key == "session_history_enabled") {
           return false;
         }
