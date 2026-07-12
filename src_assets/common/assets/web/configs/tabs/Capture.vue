@@ -115,6 +115,11 @@ const lsfgCaptureFramegenEnabled = computed(() => {
   return value === true || value === 'true' || value === 'enabled' || value === 1;
 });
 
+const lsfgAutoFlowScaleEnabled = computed(() => {
+  const value = (config.value as any)?.lsfg_auto_flow_scale;
+  return value === true || value === 'true' || value === 'enabled' || value === 1;
+});
+
 const losslessConfiguredPath = computed(() => (config.value as any)?.lossless_scaling_path ?? '');
 const losslessHasConfiguredPath = computed(() => !!normalizeWindowsPath(losslessConfiguredPath.value));
 const losslessLegacyAutoDetect = computed<boolean>({
@@ -536,10 +541,30 @@ const shouldShowSoftware = computed(() => showAll() || props.currentTab === 'sw'
             v-model="config.lsfg_capture_framegen"
           />
           <template v-if="lsfgCaptureFramegenEnabled">
-            <ConfigFieldRenderer setting-key="lsfg_flow_scale" v-model="config.lsfg_flow_scale" />
+            <ConfigFieldRenderer
+              setting-key="lsfg_auto_flow_scale"
+              v-model="config.lsfg_auto_flow_scale"
+            />
+            <ConfigFieldRenderer
+              v-if="!lsfgAutoFlowScaleEnabled"
+              setting-key="lsfg_flow_scale"
+              v-model="config.lsfg_flow_scale"
+            />
             <ConfigFieldRenderer
               setting-key="lsfg_max_multiplier"
               v-model="config.lsfg_max_multiplier"
+            />
+            <ConfigFieldRenderer
+              setting-key="lsfg_performance_mode"
+              v-model="config.lsfg_performance_mode"
+            />
+            <ConfigFieldRenderer
+              setting-key="lsfg_adaptive_quality"
+              v-model="config.lsfg_adaptive_quality"
+            />
+            <ConfigFieldRenderer
+              setting-key="lsfg_pacing_grace_ms"
+              v-model="config.lsfg_pacing_grace_ms"
             />
           </template>
         </div>

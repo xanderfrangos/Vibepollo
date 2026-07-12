@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 // platform includes
 #include <winsock2.h>
@@ -197,6 +198,11 @@ namespace platf::dxgi {
     // the source only delivers frames at the compositor rate, but generated
     // in-between frames fill the remaining pacing slots.
     bool pacing_allow_above_refresh {false};
+
+    // Exact target of the current zero-timeout pacing tick. LSFG uses this
+    // instead of post-wake wall-clock time so scheduling jitter cannot change
+    // the interpolation phase.
+    std::optional<std::chrono::steady_clock::time_point> pacing_slot_timestamp;
 
     DXGI_FORMAT capture_format;
     D3D_FEATURE_LEVEL feature_level;
@@ -489,9 +495,23 @@ namespace platf::dxgi {
     std::shared_ptr<platf::img_t> _last_cached_frame;
     std::chrono::steady_clock::time_point _wgc_stall_start {};  ///< Start of the current frame-wait stall (zero when frames are flowing).
     std::chrono::steady_clock::time_point _last_secure_desktop_probe {};  ///< Last secure-desktop probe performed during a stall.
-    std::unique_ptr<lsfg_framegen_t> _lsfg;  ///< Host-side LSFG interpolator (created after the first frame once the capture format is known).
+    // Index zero preserves the user's configured quality. The remaining entries
+    // are prebuilt fallbacks, allowing a quality change at an output boundary
+    // without allocating shaders or textures on the capture thread.
+    std::vector<std::unique_ptr<lsfg_framegen_t>> _lsfg_variants;
+    std::size_t _lsfg_active_variant = 0;
+    unsigned int _lsfg_over_budget_samples = 0;
+    unsigned int _lsfg_recovery_samples = 0;
+    std::chrono::steady_clock::time_point _lsfg_adaptation_log_at {};
+    double _lsfg_last_generated_gpu_ms = -1.0;
     bool _lsfg_requested = false;  ///< Config asked for LSFG capture frame generation.
     bool _lsfg_failed = false;  ///< LSFG initialization failed; don't retry every frame.
+    // Options the LSFG variant set was built with, for diffing against live config::video.lsfg
+    // each capture tick so pipeline-affecting settings changes rebuild it in place mid-stream
+    // (see snapshot()). Individual scalars rather than lsfg_framegen_t::options_t since
+    // lsfg_framegen_t is only forward-declared here.
+    float _lsfg_flow_scale = 1.0f;
+    bool _lsfg_performance_mode = false;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {

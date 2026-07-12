@@ -6,10 +6,11 @@
  * (https://github.com/PancakeTAS/lsfg-vk, GPL-3.0-or-later).
  *
  * The compute shaders are loaded at runtime as DXBC blobs from the RT_RCDATA
- * resources (ids 255-279, the "quality" shader set) of the user's own
- * Lossless Scaling installation. Register assignment is b0.., s0.., t0.., u0..
- * in the same order lsfg-vk binds descriptors (buffers, samplers, sampled
- * images, storage images).
+ * resources of the user's own Lossless Scaling installation: ids 255-279 are the
+ * "quality" shader set, 280-302 the "performance" set (id+23 for ids 257-279;
+ * mipmap/generate at 255/256 are shared between both -- see build_pipeline()).
+ * Register assignment is b0.., s0.., t0.., u0.. in the same order lsfg-vk binds
+ * descriptors (buffers, samplers, sampled images, storage images).
  */
 // platform includes
 #include <winsock2.h>
@@ -20,9 +21,11 @@
 // standard includes
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <string>
 #include <vector>
 
 // local includes
@@ -259,119 +262,6 @@ namespace platf::dxgi {
       return true;
     }
 
-    // Full-frame content hasher. WGC can republish the last frame at the
-    // compositor's refresh rate, so a genuinely new frame must be told apart
-    // from a duplicate. Each pixel adds a position-weighted value into one of
-    // 256 buckets on the GPU; only the 1 KiB bucket buffer is read back, and
-    // even a single changed pixel changes the signature.
-    constexpr char k_hash_shader_src[] = R"(
-Texture2D<float4> src : register(t0);
-RWStructuredBuffer<uint> buckets : register(u0);
-
-[numthreads(8, 8, 1)]
-void cs_hash(uint3 id : SV_DispatchThreadID) {
-    uint w, h;
-    src.GetDimensions(w, h);
-    if (id.x >= w || id.y >= h) return;
-    float4 c = src.Load(int3(id.x, id.y, 0));
-    uint4 q = uint4(c * 255.0 + 0.5);
-    uint packed = q.x | (q.y << 8) | (q.z << 16) | (q.w << 24);
-    uint lin = id.y * w + id.x;
-    uint hv = packed * 2654435761u + lin * 2246822519u;
-    InterlockedAdd(buckets[lin & 255u], hv);
-}
-)";
-
-    constexpr std::uint32_t k_hash_buckets = 256;
-
-    class frame_hasher_t {
-    public:
-      bool init(ID3D11Device *device, ext_t extent) {
-        std::vector<std::uint8_t> code;
-        if (!compile_shader(k_hash_shader_src, sizeof(k_hash_shader_src) - 1, "cs_hash", "cs_5_0", code)) {
-          return false;
-        }
-        auto status = device->CreateComputeShader(code.data(), code.size(), nullptr, _cs.put());
-        if (FAILED(status)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash shader [0x" << util::hex(status).to_string_view() << ']';
-          return false;
-        }
-
-        auto make_bucket_buf = [&](D3D11_USAGE usage, UINT bind, UINT cpu, bool init_zero, com_ptr<ID3D11Buffer> &buf) {
-          D3D11_BUFFER_DESC desc {};
-          desc.ByteWidth = k_hash_buckets * 4;
-          desc.Usage = usage;
-          desc.BindFlags = bind;
-          desc.CPUAccessFlags = cpu;
-          desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-          desc.StructureByteStride = 4;
-          std::array<std::uint32_t, k_hash_buckets> zeros {};
-          D3D11_SUBRESOURCE_DATA init {};
-          init.pSysMem = zeros.data();
-          return SUCCEEDED(device->CreateBuffer(&desc, init_zero ? &init : nullptr, buf.put()));
-        };
-
-        if (!make_bucket_buf(D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, true, _buf) ||
-            !make_bucket_buf(D3D11_USAGE_DEFAULT, 0, 0, true, _zero) ||
-            !make_bucket_buf(D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, false, _stage)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash buffers";
-          return false;
-        }
-
-        D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc {};
-        uav_desc.Format = DXGI_FORMAT_UNKNOWN;
-        uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-        uav_desc.Buffer.NumElements = k_hash_buckets;
-        status = device->CreateUnorderedAccessView(_buf.get(), &uav_desc, _uav.put());
-        if (FAILED(status)) {
-          BOOST_LOG(error) << "LSFG: failed to create hash UAV [0x" << util::hex(status).to_string_view() << ']';
-          return false;
-        }
-
-        _groups = {(extent.w + 7) / 8, (extent.h + 7) / 8};
-        return true;
-      }
-
-      /// Hash a full-frame texture SRV. Runs on the caller's immediate context;
-      /// returns a 64-bit signature that differs on any pixel change.
-      std::uint64_t hash(ID3D11DeviceContext *ctx, ID3D11ShaderResourceView *src_srv) {
-        ctx->CopyResource(_buf.get(), _zero.get());  // reset buckets
-        ctx->CSSetShader(_cs.get(), nullptr, 0);
-        ID3D11ShaderResourceView *srv = src_srv;
-        ctx->CSSetShaderResources(0, 1, &srv);
-        ID3D11UnorderedAccessView *uav = _uav.get();
-        ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
-        ctx->Dispatch(_groups.w, _groups.h, 1);
-        ID3D11ShaderResourceView *null_srv = nullptr;
-        ID3D11UnorderedAccessView *null_uav = nullptr;
-        ctx->CSSetShaderResources(0, 1, &null_srv);
-        ctx->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
-        ctx->CSSetShader(nullptr, nullptr, 0);
-
-        ctx->CopyResource(_stage.get(), _buf.get());
-        D3D11_MAPPED_SUBRESOURCE mapped {};
-        if (FAILED(ctx->Map(_stage.get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-          return 0;
-        }
-        const auto *buckets = static_cast<const std::uint32_t *>(mapped.pData);
-        std::uint64_t sig = 0xcbf29ce484222325ull;  // FNV-1a over the buckets
-        for (std::uint32_t i = 0; i < k_hash_buckets; ++i) {
-          sig ^= buckets[i];
-          sig *= 0x100000001b3ull;
-        }
-        ctx->Unmap(_stage.get(), 0);
-        return sig;
-      }
-
-    private:
-      com_ptr<ID3D11ComputeShader> _cs;
-      com_ptr<ID3D11UnorderedAccessView> _uav;
-      com_ptr<ID3D11Buffer> _buf;
-      com_ptr<ID3D11Buffer> _zero;
-      com_ptr<ID3D11Buffer> _stage;
-      ext_t _groups {};
-    };
-
     // Fullscreen-triangle blit used to write the generated frame (RGBA8/RGBA16F
     // UAV output) into the encoder-shared capture texture, which may have a
     // different channel order (e.g. BGRA8) that CopyResource cannot bridge.
@@ -454,10 +344,10 @@ float4 ps_main(VSOut i) : SV_Target {
     float inv_flow = 1.0f;
     options_t options {};
 
-    // ping-pong source frames: distinct frame N lands in sources[N % 2]
-    std::array<tex_t, 2> sources;
-    // render-owned copy of the latest captured frame (hashed for dedup, and
-    // shown during pass-through so the stream never freezes on stale content)
+    // Real-frame ping-pong pool: distinct frame N lands in sources[N % pool_size].
+    std::vector<tex_t> sources;
+    std::size_t pool_size = 2;
+    // render-owned copy of the latest captured frame, shown during pass-through
     tex_t latest;
 
     std::vector<step_t> prepass;
@@ -465,18 +355,68 @@ float4 ps_main(VSOut i) : SV_Target {
     std::vector<tex_t> outputs;
     std::vector<com_ptr<ID3D11Buffer>> cbp;  // per-pass constant buffers, updatable for adaptive
 
-    frame_hasher_t hasher;
     blitter_t blitter;
 
-    // adaptive timing state
+    // Adaptive timing state. Presentation is mapped from one fixed output-clock
+    // origin to one fixed source-clock origin. The source-rate EMA is used only
+    // to decide whether generation is worthwhile; it must never move the media
+    // clock backward after output has started.
     std::size_t frames_seen = 0;  // count of DISTINCT source frames consumed
     bool has_capture = false;
-    std::uint64_t last_hash = 0;
-    bool hash_seen = false;
-    std::uint64_t last_distinct_qpc = 0;
+    bool has_source_interval = false;
+    bool generation_active = false;
+    bool emit_passthrough = true;
+    std::optional<std::size_t> passthrough_source_frame;
+    std::chrono::steady_clock::time_point previous_arrival {};
     std::chrono::steady_clock::time_point last_arrival {};
+    std::optional<std::chrono::steady_clock::time_point> presentation_output_origin;
+    std::optional<std::chrono::steady_clock::time_point> presentation_media_origin;
+    std::optional<std::chrono::steady_clock::time_point> selected_media_time;
+    std::optional<std::chrono::steady_clock::time_point> generated_media_time;
+    std::optional<std::chrono::steady_clock::time_point> last_presented_media_time;
+    std::uint64_t last_distinct_qpc = 0;
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
+
+    // A small ring keeps timestamp reads off the capture critical path.  GetData
+    // is always called with DONOTFLUSH, so an overloaded GPU simply makes a
+    // sample arrive later instead of making the capture thread wait for it.
+    struct timing_slot_t {
+      com_ptr<ID3D11Query> disjoint;
+      com_ptr<ID3D11Query> begin;
+      com_ptr<ID3D11Query> end;
+      bool pending = false;
+    };
+    std::array<timing_slot_t, 8> timing_slots;
+    std::size_t timing_read = 0;
+    std::size_t timing_write = 0;
+    std::size_t timing_pending = 0;
+
+    // Event queries fence the entire command stream submitted for a capture
+    // slot, including source copies and every warm variant's optical-flow
+    // pre-pass. Unlike a timestamp around the generation tail, this exposes
+    // whether GPU queueing is making the whole LSFG workload miss its deadline.
+    struct fence_slot_t {
+      com_ptr<ID3D11Query> event;
+      std::chrono::steady_clock::time_point submitted {};
+      bool pending = false;
+    };
+    std::array<fence_slot_t, 8> fence_slots;
+    std::size_t fence_read = 0;
+    std::size_t fence_write = 0;
+    std::size_t fence_pending = 0;
+
+    // Set on each real arrival, cleared once shown as a genuine pass-through: lets the
+    // caller settle on the true final frame once generation stops being due, instead of
+    // leaving the last generated approximation on screen forever. See mark_passthrough_shown().
+    bool passthrough_dirty = true;
+
+    // Optical-flow pre-pass output. a1_out/b1_imgs are a rolling temporal history the
+    // shaders expect fed one real arrival at a time with no gaps (alpha1's per-level slot
+    // rotation, beta0's 3-way temporal blend).
+    std::array<ext_t, 7> a1_extent {};
+    std::array<std::vector<std::vector<tex_t>>, 7> a1_out;
+    std::vector<tex_t> b1_imgs;
 
     ~impl_t() {
       if (lossless_module) {
@@ -485,7 +425,9 @@ float4 ps_main(VSOut i) : SV_Target {
     }
 
     bool build_pipeline();
+    bool build_timing_queries();
     void run_steps(const std::vector<step_t> &steps, std::size_t fidx);
+    void recompute_frame_dur();
   };
 
   namespace {
@@ -558,16 +500,25 @@ float4 ps_main(VSOut i) : SV_Target {
   bool lsfg_framegen_t::impl_t::build_pipeline() {
     builder_t b {device.get()};
 
+    // Resource ids 255 (mipmap) and 256 (generate) are shared between the "quality" and
+    // "performance" shader sets. Ids 257-279 are quality; performance's counterparts are
+    // the same shader roles at id+23 (ids 280-302), lighter/faster (fewer temporal-history
+    // texture bindings each) -- ground-truth verified against a real Lossless.dll via
+    // lsfg-fs's dumprsrc/reflect tools: 280-302 is a same-sized (23 entries) DXBC block
+    // immediately following 279, with matching numthreads/bind-signature structure and
+    // uniformly smaller sizes per id. Loaded here under the LOGICAL (quality) id either
+    // way, so every b.disp(257..279, ...) call below stays mode-agnostic.
     for (std::uint16_t id = 255; id <= 279; ++id) {
+      const std::uint16_t resource_id = (options.performance_mode && id >= 257) ? static_cast<std::uint16_t>(id + 23) : id;
       std::vector<std::uint8_t> bytes;
-      if (!load_resource(lossless_module, id, bytes)) {
-        BOOST_LOG(error) << "LSFG: Lossless.dll is missing shader resource " << id << " (unsupported Lossless Scaling version?)";
+      if (!load_resource(lossless_module, resource_id, bytes)) {
+        BOOST_LOG(error) << "LSFG: Lossless.dll is missing shader resource " << resource_id << " (unsupported Lossless Scaling version?)";
         return false;
       }
       com_ptr<ID3D11ComputeShader> cs;
       auto status = device->CreateComputeShader(bytes.data(), bytes.size(), nullptr, cs.put());
       if (FAILED(status)) {
-        BOOST_LOG(error) << "LSFG: failed to create compute shader " << id << " [0x" << util::hex(status).to_string_view() << ']';
+        BOOST_LOG(error) << "LSFG: failed to create compute shader " << resource_id << " [0x" << util::hex(status).to_string_view() << ']';
         return false;
       }
       b.shaders.emplace(id, std::move(cs));
@@ -586,6 +537,12 @@ float4 ps_main(VSOut i) : SV_Target {
     // adaptive mode drives a single reusable generation tail
     const std::size_t count = 1;
     const ext_t source_extent = extent;
+
+    // Perf-mode shaders declare HALF the per-group texture bindings, so the groups
+    // scaled by `m` below (matching lsfg-vk's `m = perf ? 1 : 2`) must shrink to
+    // match; feeding them quality-sized groups misaligns every SRV/UAV slot and
+    // produces garbage flow. Groups left at fixed counts match lsfg-vk for both modes.
+    const std::size_t m = options.performance_mode ? 1 : 2;
     const ext_t flow_extent {
       static_cast<std::uint32_t>(static_cast<float>(source_extent.w) / inv_flow),
       static_cast<std::uint32_t>(static_cast<float>(source_extent.h) / inv_flow)
@@ -617,6 +574,10 @@ float4 ps_main(VSOut i) : SV_Target {
     prepass.clear();
     passes.clear();
     outputs.clear();
+    for (auto &lvl : a1_out) {
+      lvl.clear();
+    }
+    b1_imgs.clear();
 
     // --- mipmaps: source -> 7 R8 mips of the flow grid ---
     std::vector<tex_t> mips;
@@ -625,7 +586,7 @@ float4 ps_main(VSOut i) : SV_Target {
     }
     {
       step_t step;
-      for (std::size_t s = 0; s < 2; ++s) {
+      for (std::size_t s = 0; s < pool_size; ++s) {
         step.variants.push_back({b.disp(255, {&sources[s]}, refs(mips), {bnb}, cb0.get(), add_shift(flow_extent, 63, 6))});
       }
       prepass.push_back(std::move(step));
@@ -633,8 +594,6 @@ float4 ps_main(VSOut i) : SV_Target {
 
     // --- alpha0 + alpha1 per mip level, rendered level 6 down to 0 ---
     // alpha1 keeps temporal history: 3 slots for level 0, 2 otherwise.
-    std::array<std::vector<std::vector<tex_t>>, 7> a1_out;  // [level][slot][4]
-    std::array<ext_t, 7> a1_extent {};
     for (std::size_t lvl = 0; lvl < 7; ++lvl) {
       const auto e = mips[lvl].extent;
       const auto half = add_shift(e, 1, 1);
@@ -642,16 +601,16 @@ float4 ps_main(VSOut i) : SV_Target {
       a1_extent[lvl] = quarter;
       const std::size_t slots = (lvl == 0) ? 3 : 2;
       for (std::size_t s = 0; s < slots; ++s) {
-        a1_out[lvl].push_back(b.texes(4, quarter, rgba8));
+        a1_out[lvl].push_back(b.texes(2 * m, quarter, rgba8));
       }
     }
     for (int lvl = 6; lvl >= 0; --lvl) {
       const auto e = mips[lvl].extent;
       const auto half = add_shift(e, 1, 1);
       const auto quarter = a1_extent[lvl];
-      auto t0 = b.texes(2, half, rgba8);
-      auto t1 = b.texes(2, half, rgba8);
-      auto out = b.texes(4, quarter, rgba8);
+      auto t0 = b.texes(m, half, rgba8);
+      auto t1 = b.texes(m, half, rgba8);
+      auto out = b.texes(2 * m, quarter, rgba8);
       {
         step_t step;
         step.variants.push_back({
@@ -695,7 +654,6 @@ float4 ps_main(VSOut i) : SV_Target {
     // --- beta1: blur chain -> 6 R8 pyramid levels ---
     auto b1_t0 = b.texes(2, be, rgba8);
     auto b1_t1 = b.texes(2, be, rgba8);
-    std::vector<tex_t> b1_imgs;
     for (std::uint32_t i = 0; i < 6; ++i) {
       b1_imgs.push_back(b.tex(shift_ext(be, i), r8));
     }
@@ -713,6 +671,8 @@ float4 ps_main(VSOut i) : SV_Target {
     // --- per generated frame: gamma / delta pyramids + generate ---
     for (std::size_t p = 0; p < count; ++p) {
       ID3D11Buffer *cb = cbp[p].get();
+      auto &gen_a1_out = a1_out;
+      auto &gen_b1_imgs = b1_imgs;
       std::vector<step_t> steps;
       std::vector<tex_t> g1_img;
       std::vector<tex_t> d1_img0;
@@ -723,7 +683,7 @@ float4 ps_main(VSOut i) : SV_Target {
       for (std::size_t j = 0; j < 7; ++j) {
         const std::size_t lvl = 6 - j;
         const auto e = a1_extent[lvl];
-        const auto &srcs = a1_out[lvl];  // 2 temporal slots at levels 1-6
+        const auto &srcs = gen_a1_out[lvl];  // 2 temporal slots at levels 1-6
 
         // gamma0
         auto g0_out = b.texes(3, e, rgba8);
@@ -746,14 +706,14 @@ float4 ps_main(VSOut i) : SV_Target {
         }
 
         // gamma1
-        auto g1_t0 = b.texes(4, e, rgba8);
-        auto g1_t1 = b.texes(4, e, rgba8);
+        auto g1_t0 = b.texes(2 * m, e, rgba8);
+        auto g1_t1 = b.texes(2 * m, e, rgba8);
         auto img = b.tex(e, rgba16f);
         const std::size_t bidx = (j == 0) ? 5 : 6 - j;
         {
           std::vector<const tex_t *> last_srcs = refs(g1_t0);
           last_srcs.push_back(g_add0);
-          last_srcs.push_back(&b1_imgs[bidx]);
+          last_srcs.push_back(&gen_b1_imgs[bidx]);
           step_t step;
           step.variants.push_back({
             b.disp(259, refs(g0_out), refs(g1_t0), {bnb}, nullptr, g8(e)),
@@ -771,7 +731,7 @@ float4 ps_main(VSOut i) : SV_Target {
         }
         const std::size_t k = j - 4;
         auto d0_out0 = b.texes(3, e, rgba8);
-        auto d0_out1 = b.texes(2, e, rgba8);
+        auto d0_out1 = b.texes(m, e, rgba8);
         const tex_t *d_add0 = (k == 0) ? &black : &d1_img0[k - 1];
         const tex_t *d_add1 = &g1_img[j - 1];
         {
@@ -804,17 +764,23 @@ float4 ps_main(VSOut i) : SV_Target {
           steps.push_back(std::move(step));
         }
 
-        auto d1_t0 = b.texes(4, e, rgba8);
-        auto d1_t1 = b.texes(4, e, rgba8);
+        auto d1_t0 = b.texes(2 * m, e, rgba8);
+        auto d1_t1 = b.texes(2 * m, e, rgba8);
         auto img0 = b.tex(e, rgba16f);
         auto img1 = b.tex(e, rgba16f);
         const tex_t *d_add2 = (k == 0) ? &black : &d1_img1[k - 1];
         {
           std::vector<const tex_t *> s4 = refs(d1_t0);
           s4.push_back(d_add0);
-          s4.push_back(&b1_imgs[6 - j]);
-          std::vector<const tex_t *> t0h {&d1_t0[0], &d1_t0[1]};
-          std::vector<const tex_t *> t1h {&d1_t1[0], &d1_t1[1]};
+          s4.push_back(&gen_b1_imgs[6 - j]);
+          // delta1's second half binds only the first m ring entries (lsfg-vk's
+          // `.storages(this->tempImages0, 0, m)` subrange).
+          std::vector<const tex_t *> t0h;
+          std::vector<const tex_t *> t1h;
+          for (std::size_t h = 0; h < m; ++h) {
+            t0h.push_back(&d1_t0[h]);
+            t1h.push_back(&d1_t1[h]);
+          }
           std::vector<const tex_t *> s7 = t0h;
           s7.push_back(d_add2);
           step_t step;
@@ -834,15 +800,13 @@ float4 ps_main(VSOut i) : SV_Target {
         d1_img1.push_back(std::move(img1));
       }
 
-      // generate: warp prev+curr with the flow pyramids into the output.
-      // RGBA16F for HDR streams; RGBA8 (mandatory UAV store support) otherwise.
+      // generate: RGBA16F for HDR streams, RGBA8 otherwise (mandatory UAV store support).
       auto out = b.tex(source_extent, hdr ? rgba16f : rgba8);
       {
         step_t step;
-        for (std::size_t i = 0; i < 2; ++i) {
-          // even frame: t0 = sources[1] (previous), t1 = sources[0] (current)
-          const tex_t *s0 = (i == 0) ? &sources[1] : &sources[0];
-          const tex_t *s1 = (i == 0) ? &sources[0] : &sources[1];
+        for (std::size_t v = 0; v < pool_size; ++v) {
+          const tex_t *s1 = &sources[v];
+          const tex_t *s0 = &sources[(v + pool_size - 1) % pool_size];
           step.variants.push_back({b.disp(
             256,
             {s0, s1, &g1_img[6], &d1_img0[2], &d1_img1[2]},
@@ -875,6 +839,29 @@ float4 ps_main(VSOut i) : SV_Target {
   }
 
   lsfg_framegen_t::~lsfg_framegen_t() = default;
+
+  bool lsfg_framegen_t::impl_t::build_timing_queries() {
+    D3D11_QUERY_DESC timestamp_desc {};
+    timestamp_desc.Query = D3D11_QUERY_TIMESTAMP;
+    D3D11_QUERY_DESC disjoint_desc {};
+    disjoint_desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    D3D11_QUERY_DESC event_desc {};
+    event_desc.Query = D3D11_QUERY_EVENT;
+
+    for (std::size_t i = 0; i < timing_slots.size(); ++i) {
+      auto &slot = timing_slots[i];
+      if (FAILED(device->CreateQuery(&disjoint_desc, slot.disjoint.put())) ||
+          FAILED(device->CreateQuery(&timestamp_desc, slot.begin.put())) ||
+          FAILED(device->CreateQuery(&timestamp_desc, slot.end.put())) ||
+          FAILED(device->CreateQuery(&event_desc, fence_slots[i].event.put()))) {
+        BOOST_LOG(warning) << "LSFG: GPU timing queries unavailable; adaptive quality disabled";
+        timing_slots = {};
+        fence_slots = {};
+        return false;
+      }
+    }
+    return true;
+  }
 
   std::optional<std::filesystem::path> lsfg_framegen_t::find_lossless_dll() {
     // explicit override for development / unusual installs
@@ -948,9 +935,8 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.options.flow_scale = std::clamp(options.flow_scale, 0.25f, 1.0f);
     impl.options.max_multiplier = std::clamp(options.max_multiplier, 2, 20);
     impl.inv_flow = 1.0f / impl.options.flow_scale;
-    if (options.target_fps > 0.0) {
-      impl.frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / options.target_fps));
-    }
+    impl.recompute_frame_dur();
+    impl.pool_size = 2;
 
     impl.lossless_module = LoadLibraryExW(dll_path->c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
     if (!impl.lossless_module) {
@@ -958,13 +944,17 @@ float4 ps_main(VSOut i) : SV_Target {
       return nullptr;
     }
 
-    if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, impl.sources[0]) ||
-        !make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, impl.sources[1]) ||
-        !make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, impl.latest)) {
+    impl.sources.resize(impl.pool_size);
+    for (auto &src : impl.sources) {
+      if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, src)) {
+        return nullptr;
+      }
+    }
+    if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, impl.latest)) {
       return nullptr;
     }
 
-    if (!impl.hasher.init(device, impl.extent) || !impl.blitter.init(device)) {
+    if (!impl.blitter.init(device)) {
       return nullptr;
     }
 
@@ -973,9 +963,15 @@ float4 ps_main(VSOut i) : SV_Target {
       return nullptr;
     }
 
+    // Timing is optional: a driver which does not expose timestamp queries can
+    // still use LSFG normally, just without automatic quality adaptation.
+    impl.build_timing_queries();
+
     BOOST_LOG(info) << "LSFG: adaptive frame generation active [" << width << 'x' << height
-                    << ", target " << options.target_fps << " fps, flow scale " << impl.options.flow_scale
+                    << ", target " << options.target_fps << " fps"
+                    << ", flow scale " << impl.options.flow_scale
                     << ", cap " << impl.options.max_multiplier << "x, "
+                    << (impl.options.performance_mode ? "performance" : "quality") << " shaders, "
                     << (hdr ? "HDR" : "SDR") << ", shaders from " << dll_path->string() << ']';
     return self;
   }
@@ -992,62 +988,160 @@ float4 ps_main(VSOut i) : SV_Target {
       return;
     }
 
-    // Full-frame hash: catches even a single changed pixel, so a compositor
-    // republish of unchanged content does not perturb the interval estimate.
-    const auto sig = impl.hasher.hash(impl.ctx.get(), impl.latest.srv.get());
-    const bool distinct = !impl.hash_seen || sig != impl.last_hash;
-    impl.hash_seen = true;
-    impl.last_hash = sig;
-    if (!distinct) {
+    // WGC can publish the same helper frame more than once. Do not rotate the
+    // source ring or feed it into temporal optical-flow history as new motion.
+    if (frame_qpc != 0 && frame_qpc == impl.last_distinct_qpc) {
       return;
     }
 
-    impl.ctx->CopyResource(impl.sources[impl.frames_seen % 2].tex.get(), impl.latest.tex.get());
-    if (impl.last_distinct_qpc != 0 && frame_qpc > impl.last_distinct_qpc) {
-      const auto dt = platf::qpc_time_difference(static_cast<int64_t>(frame_qpc), static_cast<int64_t>(impl.last_distinct_qpc));
+    impl.passthrough_dirty = true;
+
+    // Use the producer's QPC timestamp as the source timeline where possible.
+    // Delivery can lag WGC capture by several milliseconds, and using that
+    // delivery time here would make the interpolation phase follow IPC jitter.
+    const auto arrival = frame_qpc != 0
+      ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(frame_qpc))
+      : std::chrono::steady_clock::now();
+
+    const std::size_t new_idx = impl.frames_seen;  // 0-based index of this arrival
+    impl.ctx->CopyResource(impl.sources[new_idx % impl.pool_size].tex.get(), impl.latest.tex.get());
+    if (impl.frames_seen > 0) {
+      const auto dt = std::chrono::duration_cast<std::chrono::nanoseconds>(arrival - impl.last_arrival);
       if (dt > 0ns && dt < 1s) {
-        impl.src_interval = std::chrono::duration_cast<std::chrono::nanoseconds>(impl.src_interval * 0.85 + dt * 0.15);
+        // Seed from the first measured pair. Starting from a nominal 16 ms
+        // interval leaves the output delay far too short for several frames at
+        // a 30-45 fps source, which creates a visible warm-up hitch.
+        impl.src_interval = impl.has_source_interval
+          ? std::chrono::duration_cast<std::chrono::nanoseconds>(impl.src_interval * 0.85 + dt * 0.15)
+          : dt;
+        impl.has_source_interval = true;
       }
     }
+    impl.previous_arrival = impl.last_arrival;
+    impl.last_arrival = arrival;
     if (frame_qpc != 0) {
       impl.last_distinct_qpc = frame_qpc;
     }
-    impl.last_arrival = std::chrono::steady_clock::now();
-
     if (impl.frames_seen > 0) {
-      // compute optical flow once per distinct frame; generation tails reuse it
-      // for every phase requested until the next distinct frame arrives
+      // one flow pre-pass per distinct frame; generation tails reuse it every phase
       impl.run_steps(impl.prepass, impl.frames_seen);
     }
     ++impl.frames_seen;
   }
 
+  bool lsfg_framegen_t::defer_capture_commit() const {
+    const auto &impl = *_impl;
+    return impl.frames_seen >= 2 && impl.generation_active;
+  }
+
   bool lsfg_framegen_t::want_generated(std::chrono::steady_clock::time_point now, float &phase_out) {
     auto &impl = *_impl;
-    if (impl.frames_seen < 2) {
+    impl.emit_passthrough = true;
+    impl.passthrough_source_frame.reset();
+    impl.selected_media_time.reset();
+    impl.generated_media_time.reset();
+
+    if (impl.frames_seen < 2 || !impl.has_source_interval) {
       return false;
     }
 
-    // Only generate if a source interval spans enough present slots to fit an
-    // in-between frame; below this the source is already near the target fps.
-    const double min_gen_ratio = 1.5;
-    if (std::chrono::duration<double>(impl.src_interval).count() < std::chrono::duration<double>(impl.frame_dur).count() * min_gen_ratio) {
+    const auto frame_dur = std::max(impl.frame_dur, 1ns);
+    const double source_ratio = std::chrono::duration<double>(impl.src_interval).count() /
+                                std::chrono::duration<double>(frame_dur).count();
+
+    // Do not turn a 59 -> 60 stream into a lower-latency-but-artifact-prone
+    // interpolation stream. The separate enter/exit thresholds prevent normal
+    // WGC timing noise from toggling frame generation every few captures.
+    constexpr double enter_generation_ratio = 1.05;
+    constexpr double leave_generation_ratio = 1.025;
+    if (impl.generation_active) {
+      if (source_ratio <= leave_generation_ratio) {
+        impl.generation_active = false;
+      }
+    } else if (source_ratio >= enter_generation_ratio) {
+      impl.generation_active = true;
+    }
+
+    if (!impl.generation_active) {
+      impl.presentation_output_origin.reset();
+      impl.presentation_media_origin.reset();
+      impl.last_presented_media_time.reset();
       return false;
     }
 
-    // Cap how far the phase stretches: never interpolate as though the gap
-    // since the last real frame were more than `max_multiplier` present
-    // intervals. Without this a stalled source would extrapolate across the
-    // entire gap. Past the capped interval the latest real frame is held.
-    const auto phase_interval = std::min(impl.src_interval, impl.frame_dur * impl.options.max_multiplier);
-    const auto elapsed = std::chrono::duration<float>(now - impl.last_arrival).count();
-    const auto interval_s = std::max(std::chrono::duration<float>(phase_interval).count(), 1e-4f);
-    const float t = std::clamp(elapsed / interval_s, 0.0f, 1.0f);
-    if (t >= 0.95f) {
+    // Keep the existing capped behaviour for very slow or stalled sources. A
+    // target-clock conversion cannot produce more than max_multiplier outputs
+    // for one source pair without either extrapolating or changing this option's
+    // established meaning.
+    if (source_ratio > impl.options.max_multiplier) {
+      const auto capped_interval = std::min(impl.src_interval, frame_dur * impl.options.max_multiplier);
+      const auto steps = std::max<std::int64_t>(1, (capped_interval.count() + frame_dur.count() / 2) / frame_dur.count());
+      const auto elapsed = std::chrono::duration<float>(now - impl.last_arrival).count();
+      const auto frame_dur_s = std::max(std::chrono::duration<float>(frame_dur).count(), 1e-4f);
+      const long slot = std::clamp<long>(static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1, 1, static_cast<long>(steps));
+      if (slot >= steps) {
+        return false;
+      }
+      phase_out = static_cast<float>(slot) / static_cast<float>(steps);
+      const auto pair_interval = impl.last_arrival - impl.previous_arrival;
+      const auto generated_media = impl.previous_arrival +
+                                   std::chrono::duration_cast<std::chrono::steady_clock::duration>(pair_interval * phase_out);
+      if (impl.last_presented_media_time && generated_media <= *impl.last_presented_media_time) {
+        impl.emit_passthrough = false;
+        return false;
+      }
+      impl.passthrough_source_frame = impl.frames_seen - 1;
+      impl.selected_media_time = impl.last_arrival;
+      impl.generated_media_time = generated_media;
+      return true;
+    }
+
+    // Bind the output and source clocks once. From this point onward, every
+    // output slot maps to a strictly increasing source-media timestamp even if
+    // the source cadence estimate changes or WGC delivery is bursty.
+    if (!impl.presentation_output_origin) {
+      impl.presentation_output_origin = now;
+      impl.presentation_media_origin = impl.previous_arrival;
+    }
+    const auto presentation_time = *impl.presentation_media_origin + (now - *impl.presentation_output_origin);
+    if (impl.last_presented_media_time && presentation_time <= *impl.last_presented_media_time) {
+      impl.emit_passthrough = false;
       return false;
     }
 
-    phase_out = t;
+    const auto pair_interval = std::chrono::duration_cast<std::chrono::nanoseconds>(impl.last_arrival - impl.previous_arrival);
+    if (pair_interval <= 0ns) {
+      return false;
+    }
+
+    const auto phase = std::chrono::duration<float>(presentation_time - impl.previous_arrival).count() /
+                       std::chrono::duration<float>(pair_interval).count();
+
+    const std::size_t current_source = impl.frames_seen - 1;
+    const std::size_t previous_source = current_source - 1;
+
+    if (phase <= 0.001f) {
+      impl.passthrough_source_frame = previous_source;
+      impl.selected_media_time = impl.previous_arrival;
+      return false;
+    }
+
+    if (phase >= 0.999f) {
+      if (impl.last_presented_media_time && impl.last_arrival <= *impl.last_presented_media_time) {
+        impl.emit_passthrough = false;
+        return false;
+      }
+      impl.passthrough_source_frame = current_source;
+      impl.selected_media_time = impl.last_arrival;
+      return false;
+    }
+
+    // This source is used only if rendering fails; normal generated output is
+    // recorded with the continuous presentation timestamp below.
+    impl.passthrough_source_frame = current_source;
+    impl.selected_media_time = impl.last_arrival;
+    impl.generated_media_time = presentation_time;
+    phase_out = phase;
     return true;
   }
 
@@ -1057,22 +1151,159 @@ float4 ps_main(VSOut i) : SV_Target {
       return false;
     }
 
-    // adaptive mode: rewrite the interpolation phase, then run the tail
+    impl_t::timing_slot_t *timing = nullptr;
+    if (impl.timing_pending < impl.timing_slots.size()) {
+      auto &candidate = impl.timing_slots[impl.timing_write];
+      if (candidate.disjoint && candidate.begin && candidate.end && !candidate.pending) {
+        timing = &candidate;
+        impl.ctx->Begin(timing->disjoint.get());
+        impl.ctx->End(timing->begin.get());
+      }
+    }
+
     const auto data = make_cb_data(phase, impl.inv_flow, impl.hdr);
     impl.ctx->UpdateSubresource(impl.cbp[0].get(), 0, nullptr, &data, 0, 0);
 
-    const std::size_t fidx = impl.frames_seen - 1;  // index of the newest source frame
+    const std::size_t fidx = impl.frames_seen - 1;
     impl.run_steps(impl.passes[0], fidx);
     impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), rtv, out_width, out_height);
+    if (timing) {
+      impl.ctx->End(timing->end.get());
+      impl.ctx->End(timing->disjoint.get());
+      timing->pending = true;
+      impl.timing_write = (impl.timing_write + 1) % impl.timing_slots.size();
+      ++impl.timing_pending;
+    }
     return true;
+  }
+
+  std::optional<std::chrono::nanoseconds> lsfg_framegen_t::poll_generated_gpu_time() {
+    auto &impl = *_impl;
+    if (impl.timing_pending == 0) {
+      return std::nullopt;
+    }
+
+    auto &slot = impl.timing_slots[impl.timing_read];
+    if (!slot.pending) {
+      return std::nullopt;
+    }
+
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint {};
+    const auto disjoint_status = impl.ctx->GetData(
+      slot.disjoint.get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH
+    );
+    if (disjoint_status != S_OK) {
+      return std::nullopt;
+    }
+
+    std::uint64_t begin = 0;
+    std::uint64_t end = 0;
+    const auto begin_status = impl.ctx->GetData(slot.begin.get(), &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    const auto end_status = impl.ctx->GetData(slot.end.get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    slot.pending = false;
+    impl.timing_read = (impl.timing_read + 1) % impl.timing_slots.size();
+    --impl.timing_pending;
+
+    if (begin_status != S_OK || end_status != S_OK || disjoint.Disjoint || disjoint.Frequency == 0 || end < begin) {
+      return std::nullopt;
+    }
+
+    const auto seconds = static_cast<long double>(end - begin) / static_cast<long double>(disjoint.Frequency);
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<long double>(seconds));
+  }
+
+  bool lsfg_framegen_t::generated_gpu_timing_backlogged() const {
+    const auto &impl = *_impl;
+    return impl.timing_pending == impl.timing_slots.size();
+  }
+
+  void lsfg_framegen_t::submit_gpu_work_fence() {
+    auto &impl = *_impl;
+    if (impl.fence_pending >= impl.fence_slots.size()) {
+      return;
+    }
+    auto &slot = impl.fence_slots[impl.fence_write];
+    if (!slot.event || slot.pending) {
+      return;
+    }
+    impl.ctx->End(slot.event.get());
+    slot.submitted = std::chrono::steady_clock::now();
+    slot.pending = true;
+    impl.fence_write = (impl.fence_write + 1) % impl.fence_slots.size();
+    ++impl.fence_pending;
+  }
+
+  bool lsfg_framegen_t::gpu_work_overdue(std::chrono::steady_clock::time_point now, std::chrono::nanoseconds budget) {
+    auto &impl = *_impl;
+    while (impl.fence_pending > 0) {
+      auto &slot = impl.fence_slots[impl.fence_read];
+      if (!slot.pending) {
+        break;
+      }
+      const auto status = impl.ctx->GetData(slot.event.get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+      if (status != S_OK) {
+        return now - slot.submitted >= budget;
+      }
+      slot.pending = false;
+      impl.fence_read = (impl.fence_read + 1) % impl.fence_slots.size();
+      --impl.fence_pending;
+    }
+    return false;
+  }
+
+  std::size_t lsfg_framegen_t::pending_gpu_work_fences() const {
+    return _impl->fence_pending;
+  }
+
+  std::chrono::nanoseconds lsfg_framegen_t::target_frame_duration() const {
+    return _impl->frame_dur;
+  }
+
+  void lsfg_framegen_t::mark_generated_shown() {
+    if (_impl->generated_media_time) {
+      _impl->last_presented_media_time = _impl->generated_media_time;
+    }
+  }
+
+  void lsfg_framegen_t::impl_t::recompute_frame_dur() {
+    if (options.target_fps > 0.0) {
+      frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / options.target_fps));
+    }
+  }
+
+  void lsfg_framegen_t::update_live_options(int max_multiplier) {
+    auto &impl = *_impl;
+    impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
   }
 
   ID3D11Texture2D *lsfg_framegen_t::latest_texture() const {
     return _impl->latest.tex.get();
   }
 
+  ID3D11Texture2D *lsfg_framegen_t::passthrough_texture() const {
+    const auto &impl = *_impl;
+    if (impl.passthrough_source_frame && *impl.passthrough_source_frame < impl.frames_seen &&
+        impl.frames_seen - *impl.passthrough_source_frame <= impl.pool_size) {
+      return impl.sources[*impl.passthrough_source_frame % impl.pool_size].tex.get();
+    }
+    return impl.latest.tex.get();
+  }
+
   bool lsfg_framegen_t::has_frame() const {
     return _impl->has_capture;
+  }
+
+  bool lsfg_framegen_t::has_new_passthrough_frame() const {
+    return _impl->emit_passthrough && (_impl->passthrough_source_frame.has_value() || _impl->passthrough_dirty);
+  }
+
+  void lsfg_framegen_t::mark_passthrough_shown() {
+    if (!_impl->passthrough_source_frame || *(_impl->passthrough_source_frame) + 1 == _impl->frames_seen) {
+      _impl->passthrough_dirty = false;
+    }
+    if (_impl->selected_media_time) {
+      _impl->last_presented_media_time = _impl->selected_media_time;
+    }
   }
 
 }  // namespace platf::dxgi

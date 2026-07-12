@@ -913,7 +913,10 @@ const ALLOWED_OVERRIDE_KEYS = new Set<string>([
   'rtx_hdr_saturation',
   'lsfg_capture_framegen',
   'lsfg_flow_scale',
+  'lsfg_auto_flow_scale',
   'lsfg_max_multiplier',
+  'lsfg_performance_mode',
+  'lsfg_adaptive_quality',
 
   // Codec / capture negotiation
   'fec_percentage',

@@ -172,7 +172,11 @@ const defaultGroups = [
       lossless_scaling_legacy_auto_detect: false,
       lsfg_capture_framegen: false,
       lsfg_flow_scale: 100,
+      lsfg_auto_flow_scale: true,
       lsfg_max_multiplier: 4,
+      lsfg_performance_mode: false,
+      lsfg_adaptive_quality: true,
+      lsfg_pacing_grace_ms: 0,
     },
   },
   {

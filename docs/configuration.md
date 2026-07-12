@@ -2680,6 +2680,33 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
+### lsfg_auto_flow_scale
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Derives `lsfg_flow_scale` from the connecting client's requested stream resolution
+            instead of using the fixed value: 100% at 1920x1080 scaling down to 50% at 3840x2160,
+            linearly interpolated by total pixel count and clamped at both ends. Recalculated
+            whenever a client connects; overrides `lsfg_flow_scale` while enabled.
+            @note{Applies to Windows only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_auto_flow_scale = enabled
+            @endcode</td>
+    </tr>
+</table>
+
 ### lsfg_max_multiplier
 
 <table>
@@ -2702,6 +2729,58 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>Example</td>
         <td colspan="2">@code{}
             lsfg_max_multiplier = 4
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_performance_mode
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Uses Lossless Scaling's lighter "performance" optical-flow shader set instead of the
+            default "quality" set for `lsfg_capture_framegen`. Lower GPU cost, lower visual
+            fidelity -- try this if LSFG is too heavy for the GPU at your target framerate.
+            @note{Applies to Windows only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            disabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_performance_mode = enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_pacing_grace_ms
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Maximum time an LSFG output slot waits for a late real WGC frame before generating.
+            Zero gives the most even output cadence. Values of 1-3 ms can reduce source-frame
+            latency in some workloads, but may introduce uneven delivery or judder.
+            @note{Applies to Windows only. Range 0-3.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            0
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_pacing_grace_ms = 2
             @endcode</td>
     </tr>
 </table>
