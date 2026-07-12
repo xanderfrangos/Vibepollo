@@ -44,6 +44,10 @@ const SWITCH_KEYS = new Set<string>([
   'frame_limiter_disable_vsync',
   'rtx_hdr',
   'rtx_hdr_force_sdr',
+  'lsfg_capture_framegen',
+  'lsfg_auto_flow_scale',
+  'lsfg_performance_mode',
+  'lsfg_adaptive_quality',
 ]);
 
 const NUMBER_FIELD_OVERRIDES: Record<string, Partial<ConfigFieldDefinition>> = {
@@ -79,6 +83,9 @@ const NUMBER_FIELD_OVERRIDES: Record<string, Partial<ConfigFieldDefinition>> = {
   dd_virtual_display_permanent_count: { min: 0, max: 4, step: 1, precision: 0, placeholder: '0' },
   nvenc_vbv_increase: { min: 0, max: 400, placeholder: '0' },
   frame_limiter_fps_limit: { min: 0, max: 1000, step: 1, precision: 0, placeholder: '0' },
+  lsfg_flow_scale: { min: 25, max: 100, step: 5, precision: 0, placeholder: '100' },
+  lsfg_max_multiplier: { min: 2, max: 20, step: 1, precision: 0, placeholder: '4' },
+  lsfg_pacing_grace_ms: { min: 0, max: 3, step: 1, precision: 0, placeholder: '0' },
 };
 
 const SLIDER_KEYS = new Set<string>([
@@ -87,6 +94,8 @@ const SLIDER_KEYS = new Set<string>([
   'rtx_hdr_sdr_brightness',
   'rtx_hdr_middle_gray',
   'rtx_hdr_peak_brightness',
+  'lsfg_flow_scale',
+  'lsfg_pacing_grace_ms',
 ]);
 
 function isFiniteNumber(value: unknown): value is number {
