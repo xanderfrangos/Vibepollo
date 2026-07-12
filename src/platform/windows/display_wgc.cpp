@@ -450,7 +450,11 @@ namespace platf::dxgi {
     // passthrough_pending still forces one push after a run of generated frames so
     // the client settles on the true captured frame instead of a stale extrapolation.
     const bool passthrough_pending = _lsfg->has_new_passthrough_frame();
-    if (!have_new_frame && !generate && !passthrough_pending) {
+    // A fresh source frame can be intentionally held while LSFG's delayed
+    // presentation timeline is still showing the preceding pair. Do not let
+    // arrival alone force that frame through early, or fractional conversions
+    // such as 33 -> 60 reintroduce the cadence jitter the timeline removes.
+    if (!generate && !passthrough_pending) {
       return capture_e::no_new_content;
     }
 
@@ -484,7 +488,7 @@ namespace platf::dxgi {
       wrote_generated = _lsfg->render_generated(phase, d3d_img->capture_rt.get(), d3d_img->width, d3d_img->height);
     }
     if (!wrote_generated) {
-      device_ctx->CopyResource(d3d_img->capture_texture.get(), _lsfg->latest_texture());
+      device_ctx->CopyResource(d3d_img->capture_texture.get(), _lsfg->passthrough_texture());
       _lsfg->mark_passthrough_shown();
     }
     d3d_img->blank = false;

@@ -357,10 +357,18 @@ float4 ps_main(VSOut i) : SV_Target {
 
     blitter_t blitter;
 
-    // adaptive timing state: extrapolate phase from the newest arrival
+    // Adaptive timing state. The output clock deliberately runs behind source
+    // capture by roughly one source interval, so a frame pair is available for
+    // each target-rate presentation slot. This is what makes fractional rate
+    // conversion (for example 33 -> 60) smooth instead of treating every
+    // source interval as a rounded integer number of output slots.
     std::size_t frames_seen = 0;  // count of DISTINCT source frames consumed
     bool has_capture = false;
-    std::uint64_t last_distinct_qpc = 0;
+    bool has_source_interval = false;
+    bool generation_active = false;
+    bool emit_passthrough = true;
+    bool passthrough_previous = false;
+    std::chrono::steady_clock::time_point previous_arrival {};
     std::chrono::steady_clock::time_point last_arrival {};
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
@@ -921,25 +929,29 @@ float4 ps_main(VSOut i) : SV_Target {
 
     impl.passthrough_dirty = true;
 
-    const std::size_t new_idx = impl.frames_seen;  // 0-based index of this arrival
-    impl.ctx->CopyResource(impl.sources[new_idx % impl.pool_size].tex.get(), impl.latest.tex.get());
-    if (impl.last_distinct_qpc != 0 && frame_qpc > impl.last_distinct_qpc) {
-      const auto dt = platf::qpc_time_difference(static_cast<int64_t>(frame_qpc), static_cast<int64_t>(impl.last_distinct_qpc));
-      if (dt > 0ns && dt < 1s) {
-        impl.src_interval = std::chrono::duration_cast<std::chrono::nanoseconds>(impl.src_interval * 0.85 + dt * 0.15);
-      }
-    }
-    if (frame_qpc != 0) {
-      impl.last_distinct_qpc = frame_qpc;
-    }
-
-    // Anchor the phase-slot grid to the frame's own QPC capture timestamp, not
-    // now(): WGC delivery jitter, the effective_wgc_timeout() wait, and IPC handoff
-    // add variable delay between capture and this call, which would smear the grid
-    // and misclassify pacing ticks. Falls back to now() if QPC is unavailable.
-    impl.last_arrival = frame_qpc != 0
+    // Use the producer's QPC timestamp as the source timeline where possible.
+    // Delivery can lag WGC capture by several milliseconds, and using that
+    // delivery time here would make the interpolation phase follow IPC jitter.
+    const auto arrival = frame_qpc != 0
       ? std::chrono::steady_clock::now() - platf::qpc_time_difference(platf::qpc_counter(), static_cast<int64_t>(frame_qpc))
       : std::chrono::steady_clock::now();
+
+    const std::size_t new_idx = impl.frames_seen;  // 0-based index of this arrival
+    impl.ctx->CopyResource(impl.sources[new_idx % impl.pool_size].tex.get(), impl.latest.tex.get());
+    if (impl.frames_seen > 0) {
+      const auto dt = std::chrono::duration_cast<std::chrono::nanoseconds>(arrival - impl.last_arrival);
+      if (dt > 0ns && dt < 1s) {
+        // Seed from the first measured pair. Starting from a nominal 16 ms
+        // interval leaves the output delay far too short for several frames at
+        // a 30-45 fps source, which creates a visible warm-up hitch.
+        impl.src_interval = impl.has_source_interval
+          ? std::chrono::duration_cast<std::chrono::nanoseconds>(impl.src_interval * 0.85 + dt * 0.15)
+          : dt;
+        impl.has_source_interval = true;
+      }
+    }
+    impl.previous_arrival = impl.last_arrival;
+    impl.last_arrival = arrival;
     if (impl.frames_seen > 0) {
       // one flow pre-pass per distinct frame; generation tails reuse it every phase
       impl.run_steps(impl.prepass, impl.frames_seen);
@@ -949,50 +961,81 @@ float4 ps_main(VSOut i) : SV_Target {
 
   bool lsfg_framegen_t::want_generated(std::chrono::steady_clock::time_point now, float &phase_out) {
     auto &impl = *_impl;
+    impl.emit_passthrough = true;
+    impl.passthrough_previous = false;
 
-    if (impl.frames_seen < 2) {
+    if (impl.frames_seen < 2 || !impl.has_source_interval) {
       return false;
     }
 
-    // Only generate if a source interval spans enough present slots to fit an
-    // in-between frame; below this the source is already near the target fps.
-    const double min_gen_ratio = 1.5;
-    if (std::chrono::duration<double>(impl.src_interval).count() < std::chrono::duration<double>(impl.frame_dur).count() * min_gen_ratio) {
+    const auto frame_dur = std::max(impl.frame_dur, 1ns);
+    const double source_ratio = std::chrono::duration<double>(impl.src_interval).count() /
+                                std::chrono::duration<double>(frame_dur).count();
+
+    // Do not turn a 59 -> 60 stream into a lower-latency-but-artifact-prone
+    // interpolation stream. The separate enter/exit thresholds prevent normal
+    // WGC timing noise from toggling frame generation every few captures.
+    constexpr double enter_generation_ratio = 1.05;
+    constexpr double leave_generation_ratio = 1.025;
+    if (impl.generation_active) {
+      if (source_ratio <= leave_generation_ratio) {
+        impl.generation_active = false;
+      }
+    } else if (source_ratio >= enter_generation_ratio) {
+      impl.generation_active = true;
+    }
+
+    if (!impl.generation_active) {
       return false;
     }
 
-    // Cap the extrapolated gap at `max_multiplier` intervals so a stalled source
-    // holds the latest real frame instead of extrapolating across the whole gap.
-    //
-    // Stays wall-clock based, never tick-counted: the capture loop can call this
-    // twice per iteration on a pacing bust, which desyncs a call counter from real
-    // time. Tried tick-counting and reverted (visibly worse "rewinding" judder).
-    const auto capped_interval = std::min(impl.src_interval, impl.frame_dur * impl.options.max_multiplier);
-
-    // Slots per interval, rounded to a whole tick count (not divided by src_interval
-    // directly) so the noisy EMA can't make the bucket count jitter tick-to-tick at
-    // ratios near a small integer (e.g. 60fps into 116fps).
-    std::int64_t steps = 1;
-    if (const auto frame_dur_ns = impl.frame_dur.count(); frame_dur_ns > 0) {
-      steps = std::max<std::int64_t>(1, (capped_interval.count() + frame_dur_ns / 2) / frame_dur_ns);
+    // Keep the existing capped behaviour for very slow or stalled sources. A
+    // target-clock conversion cannot produce more than max_multiplier outputs
+    // for one source pair without either extrapolating or changing this option's
+    // established meaning.
+    if (source_ratio > impl.options.max_multiplier) {
+      const auto capped_interval = std::min(impl.src_interval, frame_dur * impl.options.max_multiplier);
+      const auto steps = std::max<std::int64_t>(1, (capped_interval.count() + frame_dur.count() / 2) / frame_dur.count());
+      const auto elapsed = std::chrono::duration<float>(now - impl.last_arrival).count();
+      const auto frame_dur_s = std::max(std::chrono::duration<float>(frame_dur).count(), 1e-4f);
+      const long slot = std::clamp<long>(static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1, 1, static_cast<long>(steps));
+      if (slot >= steps) {
+        return false;
+      }
+      phase_out = static_cast<float>(slot) / static_cast<float>(steps);
+      return true;
     }
-    const long steps_i = static_cast<long>(steps);
 
-    const auto elapsed = std::chrono::duration<float>(now - impl.last_arrival).count();
-    const auto frame_dur_s = std::max(std::chrono::duration<float>(impl.frame_dur).count(), 1e-4f);
-
-    // Bucket by tick number (floor), not by rounding a continuous fraction to the
-    // nearest slot: ticks land ~frame_dur apart, so flooring puts consecutive ticks
-    // in consecutive buckets, whereas round-to-nearest (boundaries at half a slot)
-    // can collapse two ticks into the same bucket on ordinary drift -- duplicating
-    // one warp phase and dropping another slot, sometimes the real-frame slot.
-    long slot = static_cast<long>(std::floor(elapsed / frame_dur_s)) + 1;
-    slot = std::clamp<long>(slot, 1, steps_i);
-    if (slot >= steps_i) {
+    // A presentation timestamp deliberately trails the source by one measured
+    // source interval. It gives us a known A/B pair for every output slot; the
+    // phase is continuous, so 33 -> 60 produces the correct alternating phases
+    // instead of repeatedly rendering a fixed 0.5 phase (which is 33 -> 66).
+    const auto pair_interval = std::chrono::duration_cast<std::chrono::nanoseconds>(impl.last_arrival - impl.previous_arrival);
+    if (pair_interval <= 0ns) {
       return false;
     }
 
-    phase_out = static_cast<float>(slot) / static_cast<float>(steps_i);
+    const auto presentation_time = now - impl.src_interval;
+    const auto phase = std::chrono::duration<float>(presentation_time - impl.previous_arrival).count() /
+                       std::chrono::duration<float>(pair_interval).count();
+
+    // A source frame was just consumed, but the delayed output timeline is at
+    // the beginning of the new pair. Present the older endpoint, not the newer
+    // capture: this keeps 45 -> 60 on its target grid when a source frame lands
+    // exactly on an output slot.
+    if (phase <= 0.001f) {
+      impl.passthrough_previous = true;
+      return false;
+    }
+
+    // The timeline has caught up with the newest real frame. Passing it through
+    // is both sharper and safer than asking optical flow to synthesize a phase
+    // effectively equal to one.
+    if (phase >= 0.999f) {
+      return false;
+    }
+
+    phase_out = phase;
     return true;
   }
 
@@ -1026,16 +1069,26 @@ float4 ps_main(VSOut i) : SV_Target {
     return _impl->latest.tex.get();
   }
 
+  ID3D11Texture2D *lsfg_framegen_t::passthrough_texture() const {
+    const auto &impl = *_impl;
+    if (impl.passthrough_previous && impl.frames_seen >= 2) {
+      return impl.sources[(impl.frames_seen - 2) % impl.pool_size].tex.get();
+    }
+    return impl.latest.tex.get();
+  }
+
   bool lsfg_framegen_t::has_frame() const {
     return _impl->has_capture;
   }
 
   bool lsfg_framegen_t::has_new_passthrough_frame() const {
-    return _impl->passthrough_dirty;
+    return _impl->emit_passthrough && (_impl->passthrough_previous || _impl->passthrough_dirty);
   }
 
   void lsfg_framegen_t::mark_passthrough_shown() {
-    _impl->passthrough_dirty = false;
+    if (!_impl->passthrough_previous) {
+      _impl->passthrough_dirty = false;
+    }
   }
 
 }  // namespace platf::dxgi

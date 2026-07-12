@@ -96,7 +96,9 @@ namespace platf::dxgi {
      * @param now Current steady-clock time.
      * @param phase_out Set to the interpolation phase in (0,1) when returning true.
      * @return true when a generated frame should be produced at @p phase_out;
-     *         false when the latest captured frame should be passed through.
+     *         false when the caller should either pass through the newest real
+     *         frame or hold its current output (query has_new_passthrough_frame()
+     *         to distinguish those cases).
      */
     bool want_generated(std::chrono::steady_clock::time_point now, float &phase_out);
 
@@ -127,23 +129,30 @@ namespace platf::dxgi {
     ID3D11Texture2D *latest_texture() const;
 
     /**
+     * @brief Source texture selected by the most recent output decision.
+     * Usually the newest capture; at an exact timeline boundary it can be the
+     * preceding source frame so the capture is not presented early.
+     */
+    ID3D11Texture2D *passthrough_texture() const;
+
+    /**
      * @brief Whether at least one frame has been captured (latest_texture() is valid).
      */
     bool has_frame() const;
 
     /**
-     * @brief Whether latest_texture() may return content not yet shown as a genuine
-     * pass-through (as opposed to a generated/extrapolated approximation of it).
-     * Set on every real arrival (commit_capture()), cleared by mark_passthrough_shown().
-     * Lets the caller settle on the true final frame once generation stops being due,
-     * instead of leaving the last generated frame on screen indefinitely once the
-     * source stops producing new content.
+     * @brief Whether the current output decision permits a real-frame pass-through.
+     * Set on every real arrival (commit_capture()), but suppressed when the delayed
+     * output timeline has not reached that frame pair yet. Cleared by
+     * mark_passthrough_shown(). This lets the caller settle on a true source frame
+     * once it is due without presenting it early.
      */
     bool has_new_passthrough_frame() const;
 
     /**
-     * @brief Record that the caller just displayed latest_texture() as a genuine
-     * pass-through, clearing has_new_passthrough_frame() until the next real arrival.
+     * @brief Record that the caller just displayed passthrough_texture() as a
+     * genuine pass-through. This clears the pending newest-frame state only
+     * when that newest frame was the one displayed.
      */
     void mark_passthrough_shown();
 
