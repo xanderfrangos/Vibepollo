@@ -2680,6 +2680,33 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
+### lsfg_auto_flow_scale
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Derives `lsfg_flow_scale` from the connecting client's requested stream resolution
+            instead of using the fixed value: 100% at 1920x1080 scaling down to 50% at 3840x2160,
+            linearly interpolated by total pixel count and clamped at both ends. Recalculated
+            whenever a client connects; overrides `lsfg_flow_scale` while enabled.
+            @note{Applies to Windows only.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            enabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_auto_flow_scale = enabled
+            @endcode</td>
+    </tr>
+</table>
+
 ### lsfg_max_multiplier
 
 <table>

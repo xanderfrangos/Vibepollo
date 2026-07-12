@@ -53,4 +53,24 @@ describe('configFieldSchema', () => {
       }).kind,
     ).toBe('checkbox');
   });
+
+  test('renders adaptive LSFG quality as a switch', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_adaptive_quality', {
+        ...baseContext,
+        defaultValue: true,
+        currentValue: true,
+      }).kind,
+    ).toBe('switch');
+  });
+
+  test('renders automatic LSFG flow scale as a switch', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_auto_flow_scale', {
+        ...baseContext,
+        defaultValue: true,
+        currentValue: true,
+      }).kind,
+    ).toBe('switch');
+  });
 });

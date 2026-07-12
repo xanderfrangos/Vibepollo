@@ -119,6 +119,34 @@ namespace platf::dxgi {
     bool render_generated(float phase, ID3D11RenderTargetView *rtv, std::uint32_t out_width, std::uint32_t out_height);
 
     /**
+     * @brief Return one completed GPU duration for a generated frame, without
+     * waiting for the GPU. Timing is intentionally asynchronous so overload
+     * detection never stalls capture.
+     */
+    std::optional<std::chrono::nanoseconds> poll_generated_gpu_time();
+
+    /** @brief True when every non-blocking generated-frame timing slot is pending. */
+    bool generated_gpu_timing_backlogged() const;
+
+    /**
+     * @brief Insert a non-blocking fence after all LSFG commands submitted for
+     * the current slot. The caller invokes this after staged captures commit.
+     */
+    void submit_gpu_work_fence();
+
+    /**
+     * @brief Whether the oldest LSFG fence is still pending after @p budget.
+     * Completed fences are retired without flushing or waiting for the GPU.
+     */
+    bool gpu_work_overdue(std::chrono::steady_clock::time_point now, std::chrono::nanoseconds budget);
+
+    /** @brief Number of outstanding non-blocking LSFG work fences. */
+    std::size_t pending_gpu_work_fences() const;
+
+    /** @brief Duration of one requested output-frame slot. */
+    std::chrono::nanoseconds target_frame_duration() const;
+
+    /**
      * @brief Record that the generated frame selected by want_generated() was shown.
      */
     void mark_generated_shown();
