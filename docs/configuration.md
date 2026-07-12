@@ -2759,6 +2759,32 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
+### lsfg_pacing_grace_ms
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Maximum time an LSFG output slot waits for a late real WGC frame before generating.
+            Zero gives the most even output cadence. Values of 1-3 ms can reduce source-frame
+            latency in some workloads, but may introduce uneven delivery or judder.
+            @note{Applies to Windows only. Range 0-3.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            0
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_pacing_grace_ms = 2
+            @endcode</td>
+    </tr>
+</table>
+
 ### encoder
 
 <table>

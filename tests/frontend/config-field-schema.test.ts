@@ -73,4 +73,14 @@ describe('configFieldSchema', () => {
       }).kind,
     ).toBe('switch');
   });
+
+  test('renders LSFG late-source grace as a 0-3 ms slider', () => {
+    expect(
+      getConfigFieldDefinition('lsfg_pacing_grace_ms', {
+        ...baseContext,
+        defaultValue: 0,
+        currentValue: 0,
+      }),
+    ).toMatchObject({ kind: 'slider', min: 0, max: 3, step: 1 });
+  });
 });

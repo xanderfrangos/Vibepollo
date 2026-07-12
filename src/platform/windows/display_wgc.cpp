@@ -103,6 +103,17 @@ namespace platf::dxgi {
       // the snapshot's CPU work.
       auto grace = std::chrono::milliseconds(6);
 
+      // Once LSFG has source history, it can fill an output slot without a new
+      // WGC frame. Let users trade cadence for the chance to consume a just-late
+      // real source frame. A zero grace deliberately remains zero rather than
+      // being raised by the pacing safety clamp below.
+      if (fills_every_slot) {
+        grace = std::chrono::milliseconds(std::clamp(config::video.lsfg.pacing_grace_ms, 0, 3));
+        if (grace == std::chrono::milliseconds(0)) {
+          return grace;
+        }
+      }
+
       if ((is_wgc_constant_mode() || fills_every_slot) && client_framerate > 0) {
         // In constant mode a timed-out zero-timeout snapshot forwards the
         // cached frame, so the pacing group must survive the full grace: the
@@ -115,7 +126,7 @@ namespace platf::dxgi {
         // ~2 ms of the slot for wait/scheduling overhead.
         const auto frame_interval = std::chrono::nanoseconds(std::chrono::seconds(1)) / client_framerate;
         const auto clamped = std::chrono::duration_cast<std::chrono::milliseconds>(frame_interval - std::chrono::milliseconds(2));
-        grace = std::clamp(clamped, std::chrono::milliseconds(1), grace);
+        grace = std::clamp(clamped, fills_every_slot ? std::chrono::milliseconds(0) : std::chrono::milliseconds(1), grace);
       }
 
       return grace;

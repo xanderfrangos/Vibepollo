@@ -532,12 +532,11 @@ namespace platf::dxgi {
               const auto phase_err = grid_ts > *raw_anchor ? (grid_ts - *raw_anchor) : (*raw_anchor - grid_ts);
               pacing_phase_error_logger.collect_and_log(std::chrono::duration<double, std::milli>(phase_err).count());
 
-              // With LSFG, snapshot() can block up to ~6ms (effective_wgc_timeout()'s
-              // grace) waiting for a real WGC frame, busting the group far more often
-              // than plain capture. The default +-2ms snap window is narrower than that
-              // grace, so busts missed it and fell back to a raw re-anchor (full phase
-              // reset -- visible "rewinding"). Widen it while LSFG fills slots; plain
-              // capture is unaffected.
+              // With LSFG, snapshot() may wait for a real WGC frame before filling the
+              // slot. The default +-2ms snap window can be narrower than that configured
+              // grace, so busts would fall back to a raw re-anchor (full phase reset --
+              // visible "rewinding"). Widen it while LSFG fills slots; plain capture is
+              // unaffected.
               const auto snap_window = pacing_allow_above_refresh ?
                                           (std::min) (std::chrono::nanoseconds(6ms), std::chrono::nanoseconds(interval_ns) / 2) :
                                           (std::min) (std::chrono::nanoseconds(2ms), std::chrono::nanoseconds(interval_ns) / 4);

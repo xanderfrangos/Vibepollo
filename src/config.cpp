@@ -873,6 +873,7 @@ namespace config {
       4,  // lsfg.max_multiplier
       false,  // lsfg.performance_mode
       true,  // lsfg.adaptive_quality
+      0,  // lsfg.pacing_grace_ms
     },  // lsfg
   };
 
@@ -1682,6 +1683,7 @@ namespace config {
     int_between_f(vars, "lsfg_max_multiplier", video.lsfg.max_multiplier, {2, 20});
     bool_f(vars, "lsfg_performance_mode", video.lsfg.performance_mode);
     bool_f(vars, "lsfg_adaptive_quality", video.lsfg.adaptive_quality);
+    int_between_f(vars, "lsfg_pacing_grace_ms", video.lsfg.pacing_grace_ms, {0, 3});
     string_f(vars, "encoder", video.encoder);
     string_f(vars, "adapter_name", video.adapter_name);
     string_f(vars, "output_name", video.output_name);
@@ -2350,6 +2352,7 @@ namespace config {
         "lsfg_max_multiplier",
         "lsfg_performance_mode",
         "lsfg_adaptive_quality",
+        "lsfg_pacing_grace_ms",
 
         // Codec / capture negotiation
         "fec_percentage",
