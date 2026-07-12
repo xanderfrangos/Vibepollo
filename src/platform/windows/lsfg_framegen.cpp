@@ -357,19 +357,24 @@ float4 ps_main(VSOut i) : SV_Target {
 
     blitter_t blitter;
 
-    // Adaptive timing state. The output clock deliberately runs behind source
-    // capture by roughly one source interval, so a frame pair is available for
-    // each target-rate presentation slot. This is what makes fractional rate
-    // conversion (for example 33 -> 60) smooth instead of treating every
-    // source interval as a rounded integer number of output slots.
+    // Adaptive timing state. Presentation is mapped from one fixed output-clock
+    // origin to one fixed source-clock origin. The source-rate EMA is used only
+    // to decide whether generation is worthwhile; it must never move the media
+    // clock backward after output has started.
     std::size_t frames_seen = 0;  // count of DISTINCT source frames consumed
     bool has_capture = false;
     bool has_source_interval = false;
     bool generation_active = false;
     bool emit_passthrough = true;
-    bool passthrough_previous = false;
+    std::optional<std::size_t> passthrough_source_frame;
     std::chrono::steady_clock::time_point previous_arrival {};
     std::chrono::steady_clock::time_point last_arrival {};
+    std::optional<std::chrono::steady_clock::time_point> presentation_output_origin;
+    std::optional<std::chrono::steady_clock::time_point> presentation_media_origin;
+    std::optional<std::chrono::steady_clock::time_point> selected_media_time;
+    std::optional<std::chrono::steady_clock::time_point> generated_media_time;
+    std::optional<std::chrono::steady_clock::time_point> last_presented_media_time;
+    std::uint64_t last_distinct_qpc = 0;
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
 
@@ -927,6 +932,12 @@ float4 ps_main(VSOut i) : SV_Target {
       return;
     }
 
+    // WGC can publish the same helper frame more than once. Do not rotate the
+    // source ring or feed it into temporal optical-flow history as new motion.
+    if (frame_qpc != 0 && frame_qpc == impl.last_distinct_qpc) {
+      return;
+    }
+
     impl.passthrough_dirty = true;
 
     // Use the producer's QPC timestamp as the source timeline where possible.
@@ -952,6 +963,9 @@ float4 ps_main(VSOut i) : SV_Target {
     }
     impl.previous_arrival = impl.last_arrival;
     impl.last_arrival = arrival;
+    if (frame_qpc != 0) {
+      impl.last_distinct_qpc = frame_qpc;
+    }
     if (impl.frames_seen > 0) {
       // one flow pre-pass per distinct frame; generation tails reuse it every phase
       impl.run_steps(impl.prepass, impl.frames_seen);
@@ -959,10 +973,17 @@ float4 ps_main(VSOut i) : SV_Target {
     ++impl.frames_seen;
   }
 
+  bool lsfg_framegen_t::defer_capture_commit() const {
+    const auto &impl = *_impl;
+    return impl.frames_seen >= 2 && impl.generation_active;
+  }
+
   bool lsfg_framegen_t::want_generated(std::chrono::steady_clock::time_point now, float &phase_out) {
     auto &impl = *_impl;
     impl.emit_passthrough = true;
-    impl.passthrough_previous = false;
+    impl.passthrough_source_frame.reset();
+    impl.selected_media_time.reset();
+    impl.generated_media_time.reset();
 
     if (impl.frames_seen < 2 || !impl.has_source_interval) {
       return false;
@@ -986,6 +1007,9 @@ float4 ps_main(VSOut i) : SV_Target {
     }
 
     if (!impl.generation_active) {
+      impl.presentation_output_origin.reset();
+      impl.presentation_media_origin.reset();
+      impl.last_presented_media_time.reset();
       return false;
     }
 
@@ -1003,38 +1027,64 @@ float4 ps_main(VSOut i) : SV_Target {
         return false;
       }
       phase_out = static_cast<float>(slot) / static_cast<float>(steps);
+      const auto pair_interval = impl.last_arrival - impl.previous_arrival;
+      const auto generated_media = impl.previous_arrival +
+                                   std::chrono::duration_cast<std::chrono::steady_clock::duration>(pair_interval * phase_out);
+      if (impl.last_presented_media_time && generated_media <= *impl.last_presented_media_time) {
+        impl.emit_passthrough = false;
+        return false;
+      }
+      impl.passthrough_source_frame = impl.frames_seen - 1;
+      impl.selected_media_time = impl.last_arrival;
+      impl.generated_media_time = generated_media;
       return true;
     }
 
-    // A presentation timestamp deliberately trails the source by one measured
-    // source interval. It gives us a known A/B pair for every output slot; the
-    // phase is continuous, so 33 -> 60 produces the correct alternating phases
-    // instead of repeatedly rendering a fixed 0.5 phase (which is 33 -> 66).
+    // Bind the output and source clocks once. From this point onward, every
+    // output slot maps to a strictly increasing source-media timestamp even if
+    // the source cadence estimate changes or WGC delivery is bursty.
+    if (!impl.presentation_output_origin) {
+      impl.presentation_output_origin = now;
+      impl.presentation_media_origin = impl.previous_arrival;
+    }
+    const auto presentation_time = *impl.presentation_media_origin + (now - *impl.presentation_output_origin);
+    if (impl.last_presented_media_time && presentation_time <= *impl.last_presented_media_time) {
+      impl.emit_passthrough = false;
+      return false;
+    }
+
     const auto pair_interval = std::chrono::duration_cast<std::chrono::nanoseconds>(impl.last_arrival - impl.previous_arrival);
     if (pair_interval <= 0ns) {
       return false;
     }
 
-    const auto presentation_time = now - impl.src_interval;
     const auto phase = std::chrono::duration<float>(presentation_time - impl.previous_arrival).count() /
                        std::chrono::duration<float>(pair_interval).count();
 
-    // A source frame was just consumed, but the delayed output timeline is at
-    // the beginning of the new pair. Present the older endpoint, not the newer
-    // capture: this keeps 45 -> 60 on its target grid when a source frame lands
-    // exactly on an output slot.
+    const std::size_t current_source = impl.frames_seen - 1;
+    const std::size_t previous_source = current_source - 1;
+
     if (phase <= 0.001f) {
-      impl.passthrough_previous = true;
+      impl.passthrough_source_frame = previous_source;
+      impl.selected_media_time = impl.previous_arrival;
       return false;
     }
 
-    // The timeline has caught up with the newest real frame. Passing it through
-    // is both sharper and safer than asking optical flow to synthesize a phase
-    // effectively equal to one.
     if (phase >= 0.999f) {
+      if (impl.last_presented_media_time && impl.last_arrival <= *impl.last_presented_media_time) {
+        impl.emit_passthrough = false;
+        return false;
+      }
+      impl.passthrough_source_frame = current_source;
+      impl.selected_media_time = impl.last_arrival;
       return false;
     }
 
+    // This source is used only if rendering fails; normal generated output is
+    // recorded with the continuous presentation timestamp below.
+    impl.passthrough_source_frame = current_source;
+    impl.selected_media_time = impl.last_arrival;
+    impl.generated_media_time = presentation_time;
     phase_out = phase;
     return true;
   }
@@ -1054,6 +1104,12 @@ float4 ps_main(VSOut i) : SV_Target {
     return true;
   }
 
+  void lsfg_framegen_t::mark_generated_shown() {
+    if (_impl->generated_media_time) {
+      _impl->last_presented_media_time = _impl->generated_media_time;
+    }
+  }
+
   void lsfg_framegen_t::impl_t::recompute_frame_dur() {
     if (options.target_fps > 0.0) {
       frame_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / options.target_fps));
@@ -1071,8 +1127,9 @@ float4 ps_main(VSOut i) : SV_Target {
 
   ID3D11Texture2D *lsfg_framegen_t::passthrough_texture() const {
     const auto &impl = *_impl;
-    if (impl.passthrough_previous && impl.frames_seen >= 2) {
-      return impl.sources[(impl.frames_seen - 2) % impl.pool_size].tex.get();
+    if (impl.passthrough_source_frame && *impl.passthrough_source_frame < impl.frames_seen &&
+        impl.frames_seen - *impl.passthrough_source_frame <= impl.pool_size) {
+      return impl.sources[*impl.passthrough_source_frame % impl.pool_size].tex.get();
     }
     return impl.latest.tex.get();
   }
@@ -1082,12 +1139,15 @@ float4 ps_main(VSOut i) : SV_Target {
   }
 
   bool lsfg_framegen_t::has_new_passthrough_frame() const {
-    return _impl->emit_passthrough && (_impl->passthrough_previous || _impl->passthrough_dirty);
+    return _impl->emit_passthrough && (_impl->passthrough_source_frame.has_value() || _impl->passthrough_dirty);
   }
 
   void lsfg_framegen_t::mark_passthrough_shown() {
-    if (!_impl->passthrough_previous) {
+    if (!_impl->passthrough_source_frame || *(_impl->passthrough_source_frame) + 1 == _impl->frames_seen) {
       _impl->passthrough_dirty = false;
+    }
+    if (_impl->selected_media_time) {
+      _impl->last_presented_media_time = _impl->selected_media_time;
     }
   }
 

@@ -198,6 +198,11 @@ namespace platf::dxgi {
     // in-between frames fill the remaining pacing slots.
     bool pacing_allow_above_refresh {false};
 
+    // Exact target of the current zero-timeout pacing tick. LSFG uses this
+    // instead of post-wake wall-clock time so scheduling jitter cannot change
+    // the interpolation phase.
+    std::optional<std::chrono::steady_clock::time_point> pacing_slot_timestamp;
+
     DXGI_FORMAT capture_format;
     D3D_FEATURE_LEVEL feature_level;
 

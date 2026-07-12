@@ -420,13 +420,14 @@ namespace platf::dxgi {
   }
 
   capture_e display_wgc_ipc_vram_t::snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame) {
-    // Feed the fresh helper frame into the interpolator. The shared IPC mutex is
-    // held only for the stage copy; the optical-flow pre-pass runs after release
-    // so the helper's delivery thread is never stalled.
+    // Stage the fresh helper frame while its keyed mutex is held, then release it
+    // immediately. Interpolated slots commit the capture only after rendering so
+    // the optical-flow history still matches the source pair used by this slot.
+    uint64_t staged_frame_qpc = 0;
+    bool staged_capture = false;
     if (have_new_frame) {
       winrt::com_ptr<ID3D11Texture2D> gpu_tex;
-      uint64_t frame_qpc = 0;
-      auto capture_status = _ipc_session->lock_frame(gpu_tex, frame_qpc);
+      auto capture_status = _ipc_session->lock_frame(gpu_tex, staged_frame_qpc);
       if (capture_status != capture_e::ok) {
         return capture_status;
       }
@@ -434,15 +435,28 @@ namespace platf::dxgi {
       _lsfg->stage_capture(gpu_tex.get());
       _ipc_session->release();
       _frame_locked = false;
-      _lsfg->commit_capture(frame_qpc);
+      staged_capture = true;
+    }
+
+    auto commit_staged_capture = [&]() {
+      if (staged_capture) {
+        _lsfg->commit_capture(staged_frame_qpc);
+        staged_capture = false;
+      }
+    };
+
+    if (staged_capture && !_lsfg->defer_capture_commit()) {
+      commit_staged_capture();
     }
 
     if (!_lsfg->has_frame()) {
+      commit_staged_capture();
       return capture_e::timeout;
     }
 
+    const auto output_slot = pacing_slot_timestamp.value_or(std::chrono::steady_clock::now());
     float phase = 0.0f;
-    const bool generate = _lsfg->want_generated(std::chrono::steady_clock::now(), phase);
+    const bool generate = _lsfg->want_generated(output_slot, phase);
 
     // Requested FPS is a ceiling, not a floor: with nothing new to show, return
     // no_new_content (routine pacing slack, distinct from a timeout stall) rather
@@ -455,16 +469,19 @@ namespace platf::dxgi {
     // arrival alone force that frame through early, or fractional conversions
     // such as 33 -> 60 reintroduce the cadence jitter the timeline removes.
     if (!generate && !passthrough_pending) {
+      commit_staged_capture();
       return capture_e::no_new_content;
     }
 
     std::shared_ptr<platf::img_t> img;
     if (!pull_free_image_cb(img)) {
+      commit_staged_capture();
       return capture_e::interrupted;
     }
 
     auto d3d_img = std::static_pointer_cast<img_d3d_t>(img);
     if (complete_img(d3d_img.get(), false)) {
+      commit_staged_capture();
       return capture_e::error;
     }
 
@@ -473,6 +490,7 @@ namespace platf::dxgi {
       BOOST_LOG(error) << "Capture texture keyed mutex was abandoned; continuing with lock held";
     } else if (status != S_OK) {
       BOOST_LOG(error) << "Failed to lock capture texture [0x"sv << util::hex(status).to_string_view() << ']';
+      commit_staged_capture();
       return capture_e::error;
     }
 
@@ -487,19 +505,21 @@ namespace platf::dxgi {
     if (generate) {
       wrote_generated = _lsfg->render_generated(phase, d3d_img->capture_rt.get(), d3d_img->width, d3d_img->height);
     }
-    if (!wrote_generated) {
+    if (wrote_generated) {
+      _lsfg->mark_generated_shown();
+    } else {
       device_ctx->CopyResource(d3d_img->capture_texture.get(), _lsfg->passthrough_texture());
       _lsfg->mark_passthrough_shown();
     }
     d3d_img->blank = false;
 
-    const auto now = std::chrono::steady_clock::now();
-    img->frame_timestamp = now;
-    img->host_processing_timestamp = now;
-    img->capture_pacing_timestamp = now;
+    img->frame_timestamp = output_slot;
+    img->host_processing_timestamp = output_slot;
+    img->capture_pacing_timestamp = output_slot;
     img_out = img;
     _last_cached_frame = img;
 
+    commit_staged_capture();
     return capture_e::ok;
   }
 

@@ -88,6 +88,12 @@ namespace platf::dxgi {
     void commit_capture(std::uint64_t frame_qpc);
 
     /**
+     * @brief Whether a newly staged capture should be committed after the
+     * current output slot, preserving the source pair used by that slot.
+     */
+    bool defer_capture_commit() const;
+
+    /**
      * @brief Decide what the current pacing slot should show.
      *
      * Must stay wall-clock based, not pacing-tick-counted: the capture loop can
@@ -111,6 +117,11 @@ namespace platf::dxgi {
      * @return true on success.
      */
     bool render_generated(float phase, ID3D11RenderTargetView *rtv, std::uint32_t out_width, std::uint32_t out_height);
+
+    /**
+     * @brief Record that the generated frame selected by want_generated() was shown.
+     */
+    void mark_generated_shown();
 
     /**
      * @brief Update the option(s) that don't require rebuilding the GPU pipeline.

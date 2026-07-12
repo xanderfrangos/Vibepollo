@@ -478,7 +478,9 @@ namespace platf::dxgi {
             sleep_overshoot_logger.first_point(sleep_target);
             sleep_overshoot_logger.second_point_now_and_log();
 
+            pacing_slot_timestamp = sleep_target;
             status = snapshot(pull_free_image_cb, img_out, 0ms, *cursor);
+            pacing_slot_timestamp.reset();
 
             if (status == capture_e::ok && img_out) {
               frame_pacing_group_frames += 1;
@@ -498,6 +500,7 @@ namespace platf::dxgi {
 
       // Start new frame pacing group if necessary, snapshot() is called with non-zero timeout
       if (status == capture_e::timeout || (status == capture_e::ok && !frame_pacing_group_start)) {
+        pacing_slot_timestamp.reset();
         status = snapshot(pull_free_image_cb, img_out, 200ms, *cursor);
 
         if (status == capture_e::ok && img_out) {
