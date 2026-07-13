@@ -757,7 +757,7 @@
     "lsfg_flow_scale": "LSFG flow scale (%)",
     "lsfg_flow_scale_desc": "Resolution scale of the optical-flow estimation. Lower values reduce GPU cost at some quality loss; 100% matches Lossless Scaling's full-quality flow.",
     "lsfg_auto_flow_scale": "Automatic flow scale",
-    "lsfg_auto_flow_scale_desc": "Derives the flow scale from the connecting client's requested stream resolution instead of the fixed value above: 100% at 1920x1080 scaling down to 50% at 3840x2160, clamped at both ends. Recalculated whenever a client connects.",
+    "lsfg_auto_flow_scale_desc": "Derives the flow scale from the WGC capture texture that LSFG actually processes instead of the fixed value above: 100% at 1920x1080 scaling down to 50% at 3840x2160, clamped at both ends. Recalculated whenever capture initializes or changes size.",
     "lsfg_max_multiplier": "LSFG maximum multiplier",
     "lsfg_max_multiplier_desc": "Caps how far frames are interpolated when the source stalls or runs very slowly (e.g. 4 = never interpolate beyond 4 output frames per source frame). Past the cap the newest real frame is held.",
     "lsfg_performance_mode": "LSFG performance mode",

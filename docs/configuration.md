@@ -2686,10 +2686,10 @@ editing the `conf` file in a text editor. Use the examples as reference.
     <tr>
         <td>Description</td>
         <td colspan="2">
-            Derives `lsfg_flow_scale` from the connecting client's requested stream resolution
+            Derives `lsfg_flow_scale` from the WGC capture texture that LSFG actually processes
             instead of using the fixed value: 100% at 1920x1080 scaling down to 50% at 3840x2160,
             linearly interpolated by total pixel count and clamped at both ends. Recalculated
-            whenever a client connects; overrides `lsfg_flow_scale` while enabled.
+            whenever capture initializes or changes size; overrides `lsfg_flow_scale` while enabled.
             @note{Applies to Windows only.}
         </td>
     </tr>
@@ -2755,6 +2755,34 @@ editing the `conf` file in a text editor. Use the examples as reference.
         <td>Example</td>
         <td colspan="2">@code{}
             lsfg_performance_mode = enabled
+            @endcode</td>
+    </tr>
+</table>
+
+### lsfg_adaptive_quality
+
+<table>
+    <tr>
+        <td>Description</td>
+        <td colspan="2">
+            Prebuilds lower-cost LSFG profiles and temporarily selects them when the active
+            pipeline cannot complete within the output-frame GPU budget. Inactive profiles do
+            not receive per-frame optical-flow work, and a selected profile warms from current
+            source frames before generating. Quality is restored after sustained GPU headroom.
+            @note{Applies to Windows only. Enabling this option uses additional VRAM for the
+            prebuilt profiles.}
+        </td>
+    </tr>
+    <tr>
+        <td>Default</td>
+        <td colspan="2">@code{}
+            disabled
+            @endcode</td>
+    </tr>
+    <tr>
+        <td>Example</td>
+        <td colspan="2">@code{}
+            lsfg_adaptive_quality = enabled
             @endcode</td>
     </tr>
 </table>
