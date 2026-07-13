@@ -237,10 +237,10 @@ namespace config {
     struct lsfg_t {
       bool enabled;  ///< Interpolate captured frames up to the requested stream FPS.
       int flow_scale;  ///< Optical-flow resolution scale in percent (25..100).
-      /// Derive flow_scale from the connecting client's requested stream resolution
-      /// instead of using flow_scale directly: 100% at 1920x1080 scaling down to 50%
-      /// at 3840x2160, linearly interpolated by total pixel count and clamped at both
-      /// ends. Recalculated whenever a client connects.
+      /// Derive flow_scale from the WGC texture resolution actually processed by
+      /// LSFG instead of using flow_scale directly: 100% at 1920x1080 scaling down
+      /// to 50% at 3840x2160, linearly interpolated by total pixel count and clamped
+      /// at both ends. Recalculated whenever capture initializes or changes size.
       bool auto_flow_scale;
       int max_multiplier;  ///< Adaptive interpolation cap (max generated/source frame ratio, 2..20).
       /// Use Lossless Scaling's "performance" optical-flow shader set instead of "quality"

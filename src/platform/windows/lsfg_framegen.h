@@ -20,6 +20,7 @@
   #include <filesystem>
   #include <memory>
   #include <optional>
+  #include <vector>
 
   #include <d3d11.h>
 
@@ -54,6 +55,23 @@ namespace platf::dxgi {
      * @return Path to Lossless.dll, or std::nullopt when not found.
      */
     static std::optional<std::filesystem::path> find_lossless_dll();
+
+    /** @brief Resolve automatic optical-flow scale from the processed texture size. */
+    static int automatic_flow_scale_percent(std::uint32_t width, std::uint32_t height);
+
+    /** @brief Build and deduplicate the configured/adaptive quality profile list. */
+    static std::vector<options_t> quality_profiles(const options_t &base, bool adaptive_quality);
+
+  #ifdef SUNSHINE_TESTS
+    /** @brief Construct a GPU-free timeline fixture for pacing unit tests. */
+    static std::unique_ptr<lsfg_framegen_t> create_test_timeline(
+      std::chrono::steady_clock::time_point previous_arrival,
+      std::chrono::steady_clock::time_point last_arrival,
+      std::chrono::nanoseconds source_interval,
+      std::chrono::nanoseconds target_interval,
+      int max_multiplier = 4
+    );
+  #endif
 
     /**
      * @brief Create the interpolator and build the LSFG pipeline.
@@ -160,6 +178,14 @@ namespace platf::dxgi {
      * @param max_multiplier New adaptive phase cap (clamped 2..20, as in create()).
      */
     void update_live_options(int max_multiplier);
+
+    /**
+     * @brief Discard presentation/source history before activating a dormant variant.
+     *
+     * GPU resources remain allocated, but the next two source frames warm the
+     * optical-flow timeline instead of presenting stale interpolation history.
+     */
+    void reset_history();
 
     /**
      * @brief Frame to show when not actively generating: the newest raw capture.

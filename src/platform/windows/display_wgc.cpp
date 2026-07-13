@@ -173,26 +173,9 @@ namespace platf::dxgi {
       return capture_e::ok;
     }
 
-    // 100% at 1920x1080 down to 50% at 3840x2160, linearly interpolated by total
-    // pixel count and clamped at both ends so lower/higher resolutions still get
-    // a usable flow scale instead of extrapolating past the configured range.
-    int auto_lsfg_flow_scale_percent(int width, int height) {
-      constexpr double k_min_pixels = 1920.0 * 1080.0;  // 100% flow scale
-      constexpr double k_max_pixels = 3840.0 * 2160.0;  // 50% flow scale
-      const double pixels = static_cast<double>(width) * static_cast<double>(height);
-      if (pixels <= k_min_pixels) {
-        return 100;
-      }
-      if (pixels >= k_max_pixels) {
-        return 50;
-      }
-      const double t = (pixels - k_min_pixels) / (k_max_pixels - k_min_pixels);
-      return static_cast<int>(std::lround(100.0 - t * 50.0));
-    }
-
-    int resolve_lsfg_base_flow_percent(int client_width, int client_height) {
-      if (config::video.lsfg.auto_flow_scale && client_width > 0 && client_height > 0) {
-        return auto_lsfg_flow_scale_percent(client_width, client_height);
+    int resolve_lsfg_base_flow_percent(int capture_width, int capture_height) {
+      if (config::video.lsfg.auto_flow_scale && capture_width > 0 && capture_height > 0) {
+        return lsfg_framegen_t::automatic_flow_scale_percent(capture_width, capture_height);
       }
       return std::clamp(config::video.lsfg.flow_scale, 25, 100);
     }
@@ -324,14 +307,17 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Hot-apply mid-stream: rebuilding the prebuilt quality set occurs only when
-      // the user's base settings change. Adaptive changes below select an existing
-      // member of the set at an output boundary and never allocate in that path.
+      // Hot-apply mid-stream: rebuild when any pipeline-shaping option changes.
+      // Disabling adaptive quality deliberately leaves only the base pipeline, so
+      // the default mode does not pay for dormant resources or pre-pass work.
       if (!_lsfg_variants.empty()) {
-        const auto desired_flow_scale = resolve_lsfg_base_flow_percent(_config.width, _config.height) / 100.0f;
+        const auto desired_flow_scale = resolve_lsfg_base_flow_percent(desc.Width, desc.Height) / 100.0f;
         const auto desired_performance_mode = config::video.lsfg.performance_mode;
-        if (desired_flow_scale != _lsfg_flow_scale || desired_performance_mode != _lsfg_performance_mode) {
-          BOOST_LOG(info) << "LSFG: base pipeline options changed mid-stream; rebuilding adaptive variant set";
+        const auto desired_adaptive_quality = config::video.lsfg.adaptive_quality;
+        if (desired_flow_scale != _lsfg_flow_scale ||
+            desired_performance_mode != _lsfg_performance_mode ||
+            desired_adaptive_quality != _lsfg_adaptive_quality) {
+          BOOST_LOG(info) << "LSFG: pipeline options changed mid-stream; rebuilding quality variants";
           _lsfg_variants.clear();
           _lsfg_active_variant = 0;
           _lsfg_over_budget_samples = 0;
@@ -344,13 +330,12 @@ namespace platf::dxgi {
         }
       }
 
-      // Create the user's configured pipeline followed by exactly two lower-cost
-      // variants. For a base 85% quality profile this yields 60% quality, then
-      // 60% performance. If the base already uses performance shaders, the final
-      // step instead uses 50% performance.
+      // Always create the configured pipeline. Only allocate lower-cost fallbacks
+      // when adaptive quality is enabled, and deduplicate clamped profiles (for
+      // example, 25% performance would otherwise create three identical pipelines).
       if (lsfg_wanted && _lsfg_variants.empty()) {
         lsfg_framegen_t::options_t base_options;
-        const int base_flow_percent = resolve_lsfg_base_flow_percent(_config.width, _config.height);
+        const int base_flow_percent = resolve_lsfg_base_flow_percent(desc.Width, desc.Height);
         base_options.flow_scale = base_flow_percent / 100.0f;
         base_options.max_multiplier = config::video.lsfg.max_multiplier;
         base_options.performance_mode = config::video.lsfg.performance_mode;
@@ -360,16 +345,10 @@ namespace platf::dxgi {
           base_options.target_fps = _config.framerateX100 / 100.0;
         }
 
-        std::array<lsfg_framegen_t::options_t, 3> variant_options {};
-        variant_options[0] = base_options;
-        variant_options[1] = base_options;
-        variant_options[1].flow_scale = std::max(25, base_flow_percent - 25) / 100.0f;
-        variant_options[2] = variant_options[1];
-        if (base_options.performance_mode) {
-          variant_options[2].flow_scale = std::max(25, base_flow_percent - 35) / 100.0f;
-        } else {
-          variant_options[2].performance_mode = true;
-        }
+        const auto variant_options = lsfg_framegen_t::quality_profiles(
+          base_options,
+          config::video.lsfg.adaptive_quality
+        );
 
         std::vector<std::unique_ptr<lsfg_framegen_t>> variants;
         variants.reserve(variant_options.size());
@@ -388,7 +367,10 @@ namespace platf::dxgi {
           _lsfg_last_generated_gpu_ms = -1.0;
           _lsfg_flow_scale = base_options.flow_scale;
           _lsfg_performance_mode = base_options.performance_mode;
-          if (_lsfg_variants.size() == variant_options.size()) {
+          _lsfg_adaptive_quality = config::video.lsfg.adaptive_quality;
+          if (!_lsfg_adaptive_quality) {
+            BOOST_LOG(info) << "LSFG: adaptive quality disabled; using one pipeline";
+          } else if (_lsfg_variants.size() == variant_options.size()) {
             BOOST_LOG(info) << "LSFG: prebuilt " << _lsfg_variants.size() << " adaptive quality variants";
           } else {
             BOOST_LOG(warning) << "LSFG: only " << _lsfg_variants.size()
@@ -397,6 +379,8 @@ namespace platf::dxgi {
           }
         } else {
           _lsfg_failed = true;
+          pacing_allow_above_refresh = false;
+          BOOST_LOG(warning) << "LSFG: initialization failed; restoring display-refresh capture pacing";
         }
       }
     }
@@ -515,6 +499,7 @@ namespace platf::dxgi {
     const bool timing_backlogged = timed_variant.generated_gpu_timing_backlogged();
     const bool gpu_work_overdue = timed_variant.gpu_work_overdue(now, frame_budget);
     const bool adaptive_quality = config::video.lsfg.adaptive_quality;
+    bool variant_changed = false;
 
     if (!adaptive_quality) {
       _lsfg_active_variant = 0;
@@ -524,6 +509,7 @@ namespace platf::dxgi {
       _lsfg_recovery_samples = 0;
       if (++_lsfg_over_budget_samples >= 4 && _lsfg_active_variant + 1 < _lsfg_variants.size()) {
         ++_lsfg_active_variant;
+        variant_changed = true;
         _lsfg_over_budget_samples = 0;
         BOOST_LOG(warning) << "LSFG: generated-frame GPU budget exceeded; selecting adaptive quality step "
                            << _lsfg_active_variant;
@@ -536,6 +522,7 @@ namespace platf::dxgi {
       if (_lsfg_active_variant > 0 && *gpu_time * 2 <= frame_budget) {
         if (++_lsfg_recovery_samples >= 240) {
           --_lsfg_active_variant;
+          variant_changed = true;
           _lsfg_recovery_samples = 0;
           BOOST_LOG(info) << "LSFG: sustained GPU headroom; restoring adaptive quality step "
                           << _lsfg_active_variant;
@@ -558,6 +545,12 @@ namespace platf::dxgi {
     }
 
     auto &lsfg = *_lsfg_variants[_lsfg_active_variant];
+    if (variant_changed) {
+      // Inactive variants intentionally receive no per-frame work. Reset the
+      // selected pipeline so it warms from current frames instead of presenting
+      // source/timeline state left over from its previous active period.
+      lsfg.reset_history();
+    }
 
     // Stage the fresh helper frame while its keyed mutex is held, then release it
     // immediately. Interpolated slots commit the capture only after rendering so
@@ -571,12 +564,7 @@ namespace platf::dxgi {
         return capture_status;
       }
       _frame_locked = true;
-      // Each prebuilt variant receives the same source stream. Keeping their
-      // optical-flow histories warm makes a later quality change a selection,
-      // rather than a resource build or cold-start on the capture thread.
-      for (auto &variant : _lsfg_variants) {
-        variant->stage_capture(gpu_tex.get());
-      }
+      lsfg.stage_capture(gpu_tex.get());
       _ipc_session->release();
       _frame_locked = false;
       staged_capture = true;
@@ -584,9 +572,7 @@ namespace platf::dxgi {
 
     auto commit_staged_capture = [&]() {
       if (staged_capture) {
-        for (auto &variant : _lsfg_variants) {
-          variant->commit_capture(staged_frame_qpc);
-        }
+        lsfg.commit_capture(staged_frame_qpc);
         staged_capture = false;
       }
     };
@@ -603,14 +589,6 @@ namespace platf::dxgi {
     const auto output_slot = pacing_slot_timestamp.value_or(std::chrono::steady_clock::now());
     float phase = 0.0f;
     const bool generate = lsfg.want_generated(output_slot, phase);
-    // Advance every inactive variant's presentation clock at this same slot.
-    // This preserves phase continuity when an adaptive selection is made.
-    for (std::size_t i = 0; i < _lsfg_variants.size(); ++i) {
-      if (i != _lsfg_active_variant) {
-        float unused_phase = 0.0f;
-        _lsfg_variants[i]->want_generated(output_slot, unused_phase);
-      }
-    }
 
     // Requested FPS is a ceiling, not a floor: with nothing new to show, return
     // no_new_content (routine pacing slack, distinct from a timeout stall) rather

@@ -387,6 +387,7 @@ namespace platf::dxgi {
     };
 
     DXGI_RATIONAL client_frame_rate_adjusted = adjust_client_frame_rate();
+    bool pacing_allow_above_refresh_snapshot = pacing_allow_above_refresh;
     std::optional<std::chrono::steady_clock::time_point> frame_pacing_group_start;
     uint32_t frame_pacing_group_frames = 0;
 
@@ -427,6 +428,17 @@ namespace platf::dxgi {
     sleep_overshoot_logger.reset();
 
     while (true) {
+      // Capture backends can discover at runtime that an above-refresh producer
+      // (currently LSFG) is unavailable. Recompute the pacing ceiling immediately
+      // instead of running the fallback backend at a stale, over-refresh cadence.
+      if (pacing_allow_above_refresh_snapshot != pacing_allow_above_refresh) {
+        client_frame_rate_adjusted = adjust_client_frame_rate();
+        pacing_allow_above_refresh_snapshot = pacing_allow_above_refresh;
+        frame_pacing_group_start.reset();
+        frame_pacing_group_frames = 0;
+        last_pacing_slot.reset();
+      }
+
       // This will return false if the HDR state changes or for any number of other
       // display or GPU changes. We should reinit to examine the updated state of
       // the display subsystem. It is recommended to call this once per frame.
