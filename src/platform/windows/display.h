@@ -495,9 +495,10 @@ namespace platf::dxgi {
     std::shared_ptr<platf::img_t> _last_cached_frame;
     std::chrono::steady_clock::time_point _wgc_stall_start {};  ///< Start of the current frame-wait stall (zero when frames are flowing).
     std::chrono::steady_clock::time_point _last_secure_desktop_probe {};  ///< Last secure-desktop probe performed during a stall.
-    // Index zero preserves the user's configured quality. The remaining entries
-    // are prebuilt fallbacks, allowing a quality change at an output boundary
-    // without allocating shaders or textures on the capture thread.
+    // Index zero preserves the user's configured quality. Optional lower-cost
+    // fallbacks are prebuilt only while adaptive quality is enabled. Inactive
+    // variants do not consume per-frame GPU work; a newly selected variant is
+    // reset and warmed from the current source stream.
     std::vector<std::unique_ptr<lsfg_framegen_t>> _lsfg_variants;
     std::size_t _lsfg_active_variant = 0;
     unsigned int _lsfg_over_budget_samples = 0;
@@ -512,6 +513,7 @@ namespace platf::dxgi {
     // lsfg_framegen_t is only forward-declared here.
     float _lsfg_flow_scale = 1.0f;
     bool _lsfg_performance_mode = false;
+    bool _lsfg_adaptive_quality = false;
   };
 
   class display_wgc_ipc_ram_t: public display_ram_t {

@@ -21,6 +21,7 @@
 // standard includes
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -893,6 +894,74 @@ float4 ps_main(VSOut i) : SV_Target {
     return std::nullopt;
   }
 
+  int lsfg_framegen_t::automatic_flow_scale_percent(std::uint32_t width, std::uint32_t height) {
+    constexpr double min_pixels = 1920.0 * 1080.0;  // 100% flow scale
+    constexpr double max_pixels = 3840.0 * 2160.0;  // 50% flow scale
+    const double pixels = static_cast<double>(width) * static_cast<double>(height);
+    if (pixels <= min_pixels) {
+      return 100;
+    }
+    if (pixels >= max_pixels) {
+      return 50;
+    }
+    const double t = (pixels - min_pixels) / (max_pixels - min_pixels);
+    return static_cast<int>(std::lround(100.0 - t * 50.0));
+  }
+
+  std::vector<lsfg_framegen_t::options_t> lsfg_framegen_t::quality_profiles(const options_t &base, bool adaptive_quality) {
+    std::vector<options_t> profiles {base};
+    if (!adaptive_quality) {
+      return profiles;
+    }
+
+    auto append_unique = [&](options_t candidate) {
+      const auto duplicate = std::ranges::any_of(profiles, [&](const auto &existing) {
+        return existing.flow_scale == candidate.flow_scale &&
+               existing.performance_mode == candidate.performance_mode;
+      });
+      if (!duplicate) {
+        profiles.push_back(std::move(candidate));
+      }
+    };
+
+    const int base_flow_percent = static_cast<int>(std::lround(std::clamp(base.flow_scale, 0.25f, 1.0f) * 100.0f));
+    auto lower_cost = base;
+    lower_cost.flow_scale = std::max(25, base_flow_percent - 25) / 100.0f;
+    append_unique(lower_cost);
+
+    auto lowest_cost = lower_cost;
+    if (base.performance_mode) {
+      lowest_cost.flow_scale = std::max(25, base_flow_percent - 35) / 100.0f;
+    } else {
+      lowest_cost.performance_mode = true;
+    }
+    append_unique(lowest_cost);
+    return profiles;
+  }
+
+  #ifdef SUNSHINE_TESTS
+  std::unique_ptr<lsfg_framegen_t> lsfg_framegen_t::create_test_timeline(
+    std::chrono::steady_clock::time_point previous_arrival,
+    std::chrono::steady_clock::time_point last_arrival,
+    std::chrono::nanoseconds source_interval,
+    std::chrono::nanoseconds target_interval,
+    int max_multiplier
+  ) {
+    std::unique_ptr<lsfg_framegen_t> timeline {new lsfg_framegen_t()};
+    auto &impl = *timeline->_impl;
+    impl.frames_seen = 2;
+    impl.has_capture = true;
+    impl.has_source_interval = true;
+    impl.previous_arrival = previous_arrival;
+    impl.last_arrival = last_arrival;
+    impl.src_interval = source_interval;
+    impl.frame_dur = target_interval;
+    impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
+    impl.passthrough_dirty = true;
+    return timeline;
+  }
+  #endif
+
   std::unique_ptr<lsfg_framegen_t> lsfg_framegen_t::create(
     ID3D11Device *device,
     ID3D11DeviceContext *ctx,
@@ -1274,6 +1343,26 @@ float4 ps_main(VSOut i) : SV_Target {
   void lsfg_framegen_t::update_live_options(int max_multiplier) {
     auto &impl = *_impl;
     impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
+  }
+
+  void lsfg_framegen_t::reset_history() {
+    auto &impl = *_impl;
+    impl.frames_seen = 0;
+    impl.has_capture = false;
+    impl.has_source_interval = false;
+    impl.generation_active = false;
+    impl.emit_passthrough = true;
+    impl.passthrough_source_frame.reset();
+    impl.previous_arrival = {};
+    impl.last_arrival = {};
+    impl.presentation_output_origin.reset();
+    impl.presentation_media_origin.reset();
+    impl.selected_media_time.reset();
+    impl.generated_media_time.reset();
+    impl.last_presented_media_time.reset();
+    impl.last_distinct_qpc = 0;
+    impl.src_interval = 16ms;
+    impl.passthrough_dirty = true;
   }
 
   ID3D11Texture2D *lsfg_framegen_t::latest_texture() const {
