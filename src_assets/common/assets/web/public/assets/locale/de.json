@@ -1954,6 +1954,12 @@
     "rtssMissingNvFallback": "RTSS ist nicht installiert, daher wendet Vibepollo das Frame-Limit stattdessen über den NVIDIA-Treiber an. Das Streaming funktioniert weiterhin, aber der Reflex-Limiter von RTSS sorgt für ein gleichmäßigeres Frame-Pacing – installieren Sie RTSS oder geben Sie unten den Pfad an, um den flüssigsten Stream zu erhalten.",
     "rtssMissingNoFallback": "RTSS ist nicht installiert und auf diesem System ist kein Ausweich-Limiter verfügbar, daher können Spiele während des Streamings nicht per Frame-Limit begrenzt werden. Installieren Sie RTSS oder geben Sie unten den Pfad an.",
     "virtual": {
+      "modeEnabled": "Aktiviert (empfohlen)",
+      "modeDisabled": "Deaktiviert",
+      "modeLegacy": "Legacy (feste 2×-Bildwiederholrate)",
+      "summaryEnabled": "Höhere Bildwiederholraten helfen Vibepollo, Spiele flüssiger aufzunehmen. Der Bildschirm verwendet 4× Bildwiederholrate, während ein Spiel aktiv ist, und kehrt auf dem Desktop zu 1× zurück, ohne die Stream-FPS zu ändern.",
+      "summaryDisabled": "Automatische Anpassungen der Bildwiederholrate und der zugehörige Limiter für virtuelle Bildschirme sind ausgeschaltet. Der Bildschirm bleibt bei seiner normalen 1×-Bildwiederholrate.",
+      "summaryLegacy": "Der Bildschirm verwendet während des gesamten Streams eine feste 2×-Bildwiederholrate, wie ältere Versionen. Seine Bildwiederholrate ändert sich nicht, wenn Spiele starten oder beendet werden.",
       "title": "Warum virtuelle Bildschirme einen Frame-Limiter benötigen",
       "why": "Vibepollo betreibt virtuelle Bildschirme mit der 4×-fachen Bildwiederholrate des Streams und erfasst sie mit Windows Graphics Capture (WGC). Mit diesem Bildwiederholraten-Spielraum erfasst WGC Spiele mit Frame Generation (DLSS/FSR Frame Generation, Lossless Scaling, Smooth Motion) ohne Zittern, Ruckeln oder zusätzliche Latenz – und ohne die manuellen Capture-Fix-Einstellungen, die ältere Vibepollo-Versionen erforderten.",
       "whyCap": "Das Einzige, was das Spiel nicht tun darf, ist unbegrenzt zu rendern: Auf einem 4×-Display erzeugt es weit mehr Frames, als der Stream übertragen kann, die Frame-Zeiten werden unregelmäßig – sichtbares Ruckeln auf Ihrem Client – und die GPU läuft am Anschlag, wodurch der Encoder ausgebremst wird und Latenz entsteht. Ein auf die FPS des Streams abgestimmtes Frame-Limit schließt diese Lücke und hält die Übertragung flüssig.",

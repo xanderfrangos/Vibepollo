@@ -168,11 +168,19 @@ function looksMojibake(value, enValue, key) {
   return settingsNamespace && value.includes('?') && !String(enValue ?? '').includes('?');
 }
 
+function normalizeFingerprint(fingerprint) {
+  if (typeof fingerprint !== 'string') return fingerprint;
+  const parts = fingerprint.split('|');
+  // Baselines created before this change include a volatile source line number
+  // between the file and locale fields. Keep accepting them as a migration path.
+  if (parts.length === 8) parts.splice(2, 1);
+  return parts.join('|');
+}
+
 function issueFingerprint(issue) {
   return [
     issue.rule,
     issue.file ?? '',
-    issue.line ?? '',
     issue.locale ?? '',
     issue.key ?? '',
     issue.value ?? '',
@@ -675,7 +683,9 @@ export function runAudit(rawOptions = {}) {
   const baselinePath = path.resolve(rawOptions.baseline ?? DEFAULT_BASELINE);
   const allowlist = compileAllowlist(readJson(allowlistPath, {}));
   const baseline = readJson(baselinePath, { issues: [] });
-  const baselineFingerprints = new Set((baseline.issues ?? []).map((issue) => issue.fingerprint ?? issue));
+  const baselineFingerprints = new Set(
+    (baseline.issues ?? []).map((issue) => normalizeFingerprint(issue.fingerprint ?? issue)),
+  );
   const localeDir = path.join(root, 'public', 'assets', 'locale');
   const enPath = path.join(localeDir, 'en.json');
   const enJson = readJson(enPath);

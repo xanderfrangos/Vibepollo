@@ -1780,6 +1780,12 @@
     "rtssMissingNvFallback": "RTSS není nainstalován, takže Vibepollo použije limit snímků přes ovladač NVIDIA. Streamování bude dál fungovat, ale omezovač Reflex v RTSS udržuje tempo snímků stabilněji — nainstalujte jej nebo níže nastavte cestu, abyste získali co nejplynulejší stream.",
     "rtssMissingNoFallback": "RTSS není nainstalován a v tomto systému není k dispozici žádný záložní omezovač, takže hry nelze během streamování omezovat limitem snímků. Nainstalujte RTSS nebo níže nastavte cestu.",
     "virtual": {
+      "modeEnabled": "Zapnuto (doporučeno)",
+      "modeDisabled": "Vypnuto",
+      "modeLegacy": "Starší režim (pevná 2× frekvence)",
+      "summaryEnabled": "Vyšší obnovovací frekvence pomáhají Vibepollo zachytávat hry plynuleji. Displej používá 4× frekvenci při aktivní hře a na ploše se vrací na 1×, aniž by se změnilo FPS streamu.",
+      "summaryDisabled": "Automatické úpravy obnovovací frekvence a odpovídající omezovač virtuálního displeje jsou vypnuté. Displej zůstává na běžné 1× frekvenci.",
+      "summaryLegacy": "Displej používá pevnou 2× frekvenci po celý stream, stejně jako starší verze. Jeho obnovovací frekvence se nemění při spuštění ani ukončení her.",
       "title": "Proč virtuální obrazovky potřebují omezovač snímků",
       "why": "Vibepollo spouští virtuální obrazovky na 4× obnovovací frekvenci streamu a zachycuje je pomocí Windows Graphics Capture (WGC). S takovou rezervou obnovovací frekvence WGC zachycuje hry s generováním snímků (generování snímků DLSS/FSR, Lossless Scaling, Smooth Motion) bez chvění, trhání a dodatečné latence — a bez ručních nastavení pro opravu zachytávání, která vyžadovaly starší verze Vibepollo.",
       "whyCap": "Jediné, co hra nesmí dělat, je vykreslovat bez omezení: na displeji se 4× frekvencí vytváří mnohem více snímků, než dokáže stream doručit, časy snímků se stanou nepravidelnými — na klientovi se to projeví viditelným trháním — a GPU běží naplno, čímž vyhladoví enkodér a zvyšuje latenci. Limit snímků odpovídající FPS streamu tuto mezeru uzavře a udrží doručování plynulé.",

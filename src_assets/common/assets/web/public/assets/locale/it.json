@@ -1954,6 +1954,12 @@
     "rtssMissingNvFallback": "RTSS non è installato, quindi Vibepollo applicherà il limite di frame tramite il driver NVIDIA. Lo streaming continua a funzionare, ma il limiter Reflex di RTSS regola il pacing dei frame in modo più costante — installalo o imposta il percorso qui sotto per ottenere lo stream più fluido.",
     "rtssMissingNoFallback": "RTSS non è installato e su questo sistema non è disponibile alcun limiter di riserva, quindi i giochi non possono essere limitati durante lo streaming. Installa RTSS o imposta il percorso qui sotto.",
     "virtual": {
+      "modeEnabled": "Attivato (consigliato)",
+      "modeDisabled": "Disattivato",
+      "modeLegacy": "Legacy (frequenza fissa 2×)",
+      "summaryEnabled": "Frequenze di aggiornamento più alte aiutano Vibepollo ad acquisire i giochi più fluidamente. Il display usa 4× mentre un gioco è attivo e torna a 1× sul desktop, senza modificare gli FPS dello stream.",
+      "summaryDisabled": "Le regolazioni automatiche della frequenza di aggiornamento e il limitatore del display virtuale corrispondente sono disattivati. Il display resta alla normale frequenza 1×.",
+      "summaryLegacy": "Il display usa una frequenza fissa 2× per l'intero stream, come nelle versioni precedenti. La frequenza di aggiornamento non cambia quando i giochi si avviano o si chiudono.",
       "title": "Perché gli schermi virtuali hanno bisogno di un frame limiter",
       "why": "Vibepollo esegue gli schermi virtuali a 4× la frequenza di aggiornamento dello stream e li cattura con Windows Graphics Capture (WGC). Con quel margine di frequenza, WGC cattura i giochi con generazione di frame (generazione di frame DLSS/FSR, Lossless Scaling, Smooth Motion) senza jitter, scatti o latenza aggiuntiva — e senza le impostazioni manuali di correzione della cattura richieste dalle versioni precedenti di Vibepollo.",
       "whyCap": "L'unica cosa che il gioco non deve fare è renderizzare senza limiti: su un display a 4× produce molti più frame di quanti lo stream possa consegnare, i frame time diventano irregolari — scatti visibili sul client — e la GPU lavora al massimo, affamando l'encoder e aggiungendo latenza. Un limite di frame allineato agli FPS dello stream colma quel divario e mantiene fluida la consegna.",

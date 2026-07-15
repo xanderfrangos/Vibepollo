@@ -1954,6 +1954,12 @@
     "rtssMissingNvFallback": "O RTSS não está instalado, por isso o Vibepollo irá aplicar o limite de fotogramas através do controlador NVIDIA. O streaming continua a funcionar, mas o limitador Reflex do RTSS proporciona uma cadência de fotogramas mais consistente — instale-o ou defina o caminho abaixo para obter o stream mais fluido.",
     "rtssMissingNoFallback": "O RTSS não está instalado e não existe nenhum limitador alternativo neste sistema, pelo que não é possível limitar os fotogramas dos jogos durante o streaming. Instale o RTSS ou defina o caminho abaixo.",
     "virtual": {
+      "modeEnabled": "Ativado (recomendado)",
+      "modeDisabled": "Desativado",
+      "modeLegacy": "Legado (taxa fixa de 2×)",
+      "summaryEnabled": "Taxas de atualização mais elevadas ajudam o Vibepollo a capturar jogos mais fluidamente. O ecrã utiliza 4× enquanto um jogo está ativo e volta a 1× no ambiente de trabalho, sem alterar os FPS da transmissão.",
+      "summaryDisabled": "Os ajustes automáticos da taxa de atualização e o limitador de ecrã virtual correspondente estão desligados. O ecrã mantém a sua taxa normal de 1×.",
+      "summaryLegacy": "O ecrã utiliza uma taxa fixa de 2× durante toda a transmissão, como nas versões anteriores. A taxa de atualização não muda quando os jogos começam ou fecham.",
       "title": "Porque é que os ecrãs virtuais precisam de um limitador de fotogramas",
       "why": "O Vibepollo executa os ecrãs virtuais a 4× a taxa de atualização do stream e capta-os com o Windows Graphics Capture (WGC). Com essa margem de atualização, o WGC capta jogos com geração de fotogramas (geração de fotogramas DLSS/FSR, Lossless Scaling, Smooth Motion) sem oscilações, tremuras nem latência adicional — e sem as definições manuais de correção de captura que as versões antigas do Vibepollo exigiam.",
       "whyCap": "A única coisa que o jogo não deve fazer é renderizar sem limite: num ecrã a 4×, produz muito mais fotogramas do que o stream consegue entregar, os tempos de fotograma tornam-se erráticos — tremura visível no cliente — e a GPU trabalha no máximo, deixando o codificador sem recursos e acrescentando latência. Um limite de fotogramas ajustado aos FPS do stream fecha essa diferença e mantém a entrega fluida.",
