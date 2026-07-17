@@ -349,7 +349,11 @@
     "playnite_source_manual": "Ruční",
     "source_custom": "Vlastní",
     "source_custom_named": "Vlastní: \"{name}\"",
-    "untitled": "Bez názvu"
+    "untitled": "Bez názvu",
+    "terminate_on_pause": "Ukon?it p?i pozastaven?",
+    "allow_client_commands": "Povolit p??kazy klienta",
+    "use_app_identity": "Pou??t identitu aplikace",
+    "per_client_app_identity": "Identita aplikace pro jednotliv? klienty"
   },
   "offline": {
     "title": "Ztratilo se spojení se Vibepollo",

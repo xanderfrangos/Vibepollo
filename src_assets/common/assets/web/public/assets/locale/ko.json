@@ -349,7 +349,11 @@
     "playnite_source_manual": "수동",
     "source_custom": "사용자 지정",
     "source_custom_named": "사용자 지정: \"{name}\"",
-    "untitled": "제목 없음"
+    "untitled": "제목 없음",
+    "terminate_on_pause": "?? ?? ? ??",
+    "allow_client_commands": "????? ?? ??",
+    "use_app_identity": "? ID ??",
+    "per_client_app_identity": "?????? ? ID"
   },
   "config": {
     "adapter_name": "어댑터 이름",

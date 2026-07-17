@@ -349,7 +349,11 @@
     "playnite_source_manual": "Manuel",
     "source_custom": "Özel",
     "source_custom_named": "Özel: \"{name}\"",
-    "untitled": "Başlıksız"
+    "untitled": "Başlıksız",
+    "terminate_on_pause": "Duraklat?ld???nda sonland?r",
+    "allow_client_commands": "?stemci komutlar?na izin ver",
+    "use_app_identity": "Uygulama kimli?ini kullan",
+    "per_client_app_identity": "?stemci ba??na uygulama kimli?i"
   },
   "config": {
     "adapter_name": "Adaptör Adı",

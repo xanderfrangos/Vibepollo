@@ -350,7 +350,11 @@
     "playnite_source_manual": "Thủ công",
     "source_custom": "Tùy chỉnh",
     "source_custom_named": "Tùy chỉnh: \"{name}\"",
-    "untitled": "Không có tiêu đề"
+    "untitled": "Không có tiêu đề",
+    "terminate_on_pause": "K?t th?c khi t?m d?ng",
+    "allow_client_commands": "Cho ph?p l?nh t? m?y kh?ch",
+    "use_app_identity": "S? d?ng danh t?nh ?ng d?ng",
+    "per_client_app_identity": "Danh t?nh ?ng d?ng theo t?ng m?y kh?ch"
   },
   "config": {
     "adapter_name": "Adapter Name",

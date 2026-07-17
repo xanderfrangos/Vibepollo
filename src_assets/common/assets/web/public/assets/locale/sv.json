@@ -349,7 +349,11 @@
     "playnite_source_manual": "Manuell",
     "source_custom": "Anpassad",
     "source_custom_named": "Anpassad: \"{name}\"",
-    "untitled": "Namnlös"
+    "untitled": "Namnlös",
+    "terminate_on_pause": "Avsluta vid paus",
+    "allow_client_commands": "Till?t klientkommandon",
+    "use_app_identity": "Anv?nd appidentitet",
+    "per_client_app_identity": "Appidentitet per klient"
   },
   "config": {
     "adapter_name": "Adapter namn",

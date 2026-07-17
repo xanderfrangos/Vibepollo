@@ -116,13 +116,13 @@
               {{ t('_common.elevated') }}
             </n-checkbox>
             <n-checkbox v-model:checked="form.terminateOnPause" size="small">
-              Terminate On Pause
+              {{ t('apps.terminate_on_pause') }}
             </n-checkbox>
             <n-checkbox v-model:checked="form.allowClientCommands" size="small" class="md:col-span-2">
-              Allow Client Commands
+              {{ t('apps.allow_client_commands') }}
             </n-checkbox>
             <n-checkbox v-model:checked="form.useAppIdentity" size="small">
-              Use App Identity
+              {{ t('apps.use_app_identity') }}
             </n-checkbox>
             <n-checkbox
               v-if="form.useAppIdentity"
@@ -130,7 +130,7 @@
               size="small"
               class="md:col-span-2"
             >
-              Per-client App Identity
+              {{ t('apps.per_client_app_identity') }}
             </n-checkbox>
             <n-checkbox
               v-if="isWindows"

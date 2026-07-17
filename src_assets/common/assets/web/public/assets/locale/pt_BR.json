@@ -349,7 +349,11 @@
     "playnite_source_manual": "Manual",
     "source_custom": "Personalizado",
     "source_custom_named": "Personalizado: \"{name}\"",
-    "untitled": "Sem título"
+    "untitled": "Sem título",
+    "terminate_on_pause": "Encerrar ao pausar",
+    "allow_client_commands": "Permitir comandos do cliente",
+    "use_app_identity": "Usar identidade do aplicativo",
+    "per_client_app_identity": "Identidade do aplicativo por cliente"
   },
   "config": {
     "adapter_name": "Nome do adaptador",

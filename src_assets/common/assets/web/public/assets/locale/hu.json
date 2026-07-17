@@ -350,7 +350,11 @@
     "playnite_source_manual": "Kézi",
     "source_custom": "Egyéni",
     "source_custom_named": "Egyéni: \"{name}\"",
-    "untitled": "Névtelen"
+    "untitled": "Névtelen",
+    "terminate_on_pause": "Sz?neteltet?skor le?ll?t?s",
+    "allow_client_commands": "Kliensparancsok enged?lyez?se",
+    "use_app_identity": "Alkalmaz?sazonoss?g haszn?lata",
+    "per_client_app_identity": "Kliensenk?nti alkalmaz?sazonoss?g"
   },
   "config": {
     "adapter_name": "Adapter neve",

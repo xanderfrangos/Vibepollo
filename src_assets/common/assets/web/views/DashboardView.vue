@@ -151,7 +151,7 @@
                     strong
                     size="small"
                     class="w-full justify-center sm:w-auto"
-                    href="https://github.com/Nonary/vibeshine/issues/new?template=bug_report.yml"
+                    href="https://github.com/Nonary/Vibepollo/issues/new?template=bug_report.yml"
                     target="_blank"
                     rel="noopener noreferrer"
                   >

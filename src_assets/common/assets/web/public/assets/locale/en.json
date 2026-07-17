@@ -349,7 +349,11 @@
     "playnite_source_manual": "Manual",
     "source_custom": "Custom",
     "source_custom_named": "Custom: \"{name}\"",
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "terminate_on_pause": "Terminate on pause",
+    "allow_client_commands": "Allow client commands",
+    "use_app_identity": "Use app identity",
+    "per_client_app_identity": "Per-client app identity"
   },
   "offline": {
     "title": "Lost Connection to Vibepollo",

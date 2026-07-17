@@ -349,7 +349,11 @@
     "playnite_source_manual": "手動",
     "source_custom": "自訂",
     "source_custom_named": "自訂：「{name}」",
-    "untitled": "未命名"
+    "untitled": "未命名",
+    "terminate_on_pause": "?????",
+    "allow_client_commands": "???????",
+    "use_app_identity": "????????",
+    "per_client_app_identity": "????????????"
   },
   "config": {
     "adapter_name": "顯示卡名稱",
