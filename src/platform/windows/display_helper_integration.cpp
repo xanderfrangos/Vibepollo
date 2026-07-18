@@ -608,9 +608,6 @@ namespace {
   // Tracks whether we've recently requested a helper REVERT and therefore expect a restore loop to be active.
   // Used to avoid spamming DISARM frames and to enable a kill-switch if IPC is wedged.
   static std::atomic<bool> g_restore_expected {false};
-  // True when the most recent APPLY was dispatched through the helper; gates the
-  // capture-start verification wait (v2 engine only).
-  static std::atomic<bool> g_last_apply_used_helper {false};
 
   // Resolve the effective display helper engine. In automatic mode the v2 engine
   // only rides pre-release builds; stable releases keep the legacy engine until
@@ -642,12 +639,27 @@ namespace {
   // Tracks when the most recent successful APPLY completed, so the capture thread
   // can add a stabilization delay before attempting to reinit after topology changes.
   static std::atomic<std::int64_t> g_last_apply_completed_us {0};
+  static std::atomic<std::uint64_t> g_last_apply_generation {0};
+  static std::atomic<std::uint64_t> g_last_verified_apply_generation {0};
+  static std::atomic<std::uint64_t> g_capture_stable_eligible_apply_generation {0};
 
   static std::int64_t now_steady_us() {
     using namespace std::chrono;
     return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
   }
 
+  static void note_successful_apply() {
+    g_last_apply_completed_us.store(now_steady_us(), std::memory_order_release);
+  }
+
+  // A control command that can change the desktop must revoke any outstanding
+  // capture-gate proof. Tickets carry their own generation, so this does not
+  // make a later APPLY depend on mutable global request identity.
+  static void invalidate_apply_verification() {
+    g_last_apply_generation.fetch_add(1, std::memory_order_acq_rel);
+    g_last_verified_apply_generation.store(0, std::memory_order_release);
+    g_capture_stable_eligible_apply_generation.store(0, std::memory_order_release);
+  }
   bool helper_start_failure_cooldown_active() {
     const auto last_us = g_last_helper_start_failure_us.load(std::memory_order_relaxed);
     if (last_us <= 0) {
@@ -759,32 +771,12 @@ namespace {
       }
     }
 
-    using namespace std::chrono;
-    const auto start = steady_clock::now();
-    const auto deadline = start + kDisarmRestoreBudget;
-    auto remaining_ms = [&]() -> int {
-      const auto now = steady_clock::now();
-      if (now >= deadline) {
-        return 0;
-      }
-      return static_cast<int>(duration_cast<milliseconds>(deadline - now).count());
-    };
-
-    // Bound total blocking to kDisarmRestoreBudget by splitting the budget across connect+send.
-    auto try_send_fast = [&](int max_total_ms) -> bool {
-      const int per_op_ms = std::max(10, max_total_ms / 2);
-      return platf::display_helper_client::send_disarm_restore_fast(per_op_ms);
-    };
-
     g_last_disarm_attempt_us.store(now_us, std::memory_order_relaxed);
-    bool ok = try_send_fast(static_cast<int>(kDisarmRestoreBudget.count()));
-    if (!ok) {
-      const int rem = remaining_ms();
-      if (rem > 20) {
-        platf::display_helper_client::reset_connection();
-        ok = try_send_fast(rem);
-      }
-    }
+    // The short recovery path intentionally makes one cache-only attempt. A
+    // reconnect or a synchronous reset can take seconds and would defeat the
+    // deadline that protects stream startup from a concurrent restore.
+    const bool ok = platf::display_helper_client::send_disarm_restore_fast(
+      static_cast<int>(kDisarmRestoreBudget.count()));
 
     if (ok) {
       g_last_disarm_success_us.store(now_us, std::memory_order_relaxed);
@@ -804,7 +796,6 @@ namespace {
         std::lock_guard<std::mutex> lg(helper_mutex());
         helper_proc().terminate();
       }
-      platf::display_helper_client::reset_connection();
       g_restore_expected.store(false, std::memory_order_relaxed);
     }
 
@@ -1231,13 +1222,20 @@ namespace {
 
 namespace display_helper_integration {
   namespace {
-    bool apply_internal(const DisplayApplyRequest &request, bool allow_resolution_deferral) {
+    bool apply_internal(
+      const DisplayApplyRequest &request,
+      bool allow_resolution_deferral,
+      ApplyVerificationTicket *verification_ticket) {
+      if (verification_ticket) {
+        *verification_ticket = {};
+      }
       if (request.action == DisplayApplyAction::Skip) {
         BOOST_LOG(info) << "Display helper: configuration parse failed; not dispatching.";
         return false;
       }
 
       if (request.action == DisplayApplyAction::Revert) {
+        invalidate_apply_verification();
         const bool helper_ready = ensure_helper_started(false, true);
         if (!helper_ready) {
           BOOST_LOG(warning) << "Display helper: REVERT skipped (helper not reachable).";
@@ -1255,6 +1253,21 @@ namespace display_helper_integration {
         return false;
       }
 
+      // Invalidate verification from any older APPLY before starting work. This
+      // prevents capture from treating the previous generation as proof while a
+      // newer topology change is in flight.
+      const auto apply_generation = g_last_apply_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+      if (verification_ticket) {
+        verification_ticket->generation = apply_generation;
+      }
+      const bool exclusive_virtual =
+        request.virtual_display_arrangement == VirtualDisplayArrangement::Exclusive;
+      const bool source_hdr_explicitly_disabled =
+        request.configuration && request.configuration->m_hdr_state == display_device::HdrState::Disabled;
+      g_capture_stable_eligible_apply_generation.store(
+        exclusive_virtual && source_hdr_explicitly_disabled ? apply_generation : 0,
+        std::memory_order_release
+      );
       // Prefer the helper for APPLY, even when running as SYSTEM without an interactive user session.
       // In-process display APIs frequently return ERROR_ACCESS_DENIED in that context.
       const bool system_no_user_session = platf::is_running_as_system() && !user_session_ready();
@@ -1293,12 +1306,28 @@ namespace display_helper_integration {
         }
 
         BOOST_LOG(info) << "Display helper: sending APPLY request via helper.";
-        const bool ok = platf::display_helper_client::send_apply_json(*payload);
+        std::uint64_t helper_apply_request_id = 0;
+        std::uint64_t client_wait_generation = 0;
+        std::uint64_t connection_generation = 0;
+        const bool ok = platf::display_helper_client::send_apply_json(
+          *payload,
+          &helper_apply_request_id,
+          &client_wait_generation,
+          &connection_generation);
         BOOST_LOG(info) << "Display helper: APPLY dispatch result=" << (ok ? "true" : "false");
-        g_last_apply_used_helper.store(ok, std::memory_order_relaxed);
+        // The client identifies the live helper protocol from its ApplyResult.
+        // A non-zero id means this specific connection confirmed v2's
+        // token/verification protocol; an untagged legacy acknowledgement
+        // intentionally preserves v1's synchronous completion behavior.
+        if (verification_ticket && ok && helper_apply_request_id != 0) {
+          verification_ticket->uses_v2_helper = true;
+          verification_ticket->helper_request_id = helper_apply_request_id;
+          verification_ticket->client_wait_generation = client_wait_generation;
+          verification_ticket->connection_generation = connection_generation;
+        }
         if (ok && request.session) {
           g_restore_expected.store(false, std::memory_order_relaxed);
-          g_last_apply_completed_us.store(now_steady_us(), std::memory_order_relaxed);
+          note_successful_apply();
           set_active_session(
             *request.session,
             request.session_overrides.device_id_override,
@@ -1347,7 +1376,7 @@ namespace display_helper_integration {
       }
       (void) apply_topology_definition(request.topology, "in-process");
 
-      g_last_apply_completed_us.store(now_steady_us(), std::memory_order_relaxed);
+      note_successful_apply();
       set_active_session(
         *request.session,
         request.session_overrides.device_id_override,
@@ -1365,27 +1394,51 @@ namespace display_helper_integration {
     }
   }  // namespace
 
-  ApplyVerificationStatus wait_for_apply_verification(std::chrono::milliseconds timeout) {
-    // The legacy engine never emits VerificationResult frames; don't burn the timeout.
-    if (use_legacy_helper_engine()) {
-      return ApplyVerificationStatus::Unknown;
-    }
-    if (!g_last_apply_used_helper.exchange(false, std::memory_order_acq_rel)) {
+  ApplyVerificationStatus wait_for_apply_verification(
+    const ApplyVerificationTicket &ticket,
+    std::chrono::milliseconds timeout) {
+    // Legacy success is acknowledged only after its synchronous verification,
+    // but it does not emit a separately attributable VerificationResult frame.
+    if (!ticket.uses_v2_helper || ticket.generation == 0 || ticket.helper_request_id == 0 ||
+        ticket.client_wait_generation == 0 || ticket.connection_generation == 0) {
       return ApplyVerificationStatus::Unknown;
     }
 
     const int timeout_ms = static_cast<int>(std::max<long long>(timeout.count(), 0LL));
-    const auto result = platf::display_helper_client::wait_for_verification_result(timeout_ms);
+    const auto result = platf::display_helper_client::wait_for_verification_result(
+      timeout_ms,
+      [generation = ticket.generation] {
+        return g_last_apply_generation.load(std::memory_order_acquire) != generation;
+      },
+      ticket.helper_request_id,
+      ticket.client_wait_generation,
+      ticket.connection_generation
+    );
     if (!result.has_value()) {
-      BOOST_LOG(warning) << "Display helper: verification result unavailable; proceeding with stream.";
+      if (g_last_apply_generation.load(std::memory_order_acquire) != ticket.generation) {
+        BOOST_LOG(debug) << "Display helper: verification gate superseded by a newer APPLY.";
+      } else {
+        BOOST_LOG(warning) << "Display helper: verification result unavailable; proceeding with stream.";
+      }
       return ApplyVerificationStatus::Unknown;
     }
 
-    return *result ? ApplyVerificationStatus::Verified : ApplyVerificationStatus::Failed;
+    if (*result && g_last_apply_generation.load(std::memory_order_acquire) == ticket.generation) {
+      g_last_verified_apply_generation.store(ticket.generation, std::memory_order_release);
+      return ApplyVerificationStatus::Verified;
+    }
+    return *result ? ApplyVerificationStatus::Unknown : ApplyVerificationStatus::Failed;
   }
 
-  bool apply(const DisplayApplyRequest &request) {
-    g_last_apply_used_helper.store(false, std::memory_order_relaxed);
+  bool last_apply_is_capture_stable() {
+    const auto before = g_last_apply_generation.load(std::memory_order_acquire);
+    const auto verified = g_last_verified_apply_generation.load(std::memory_order_acquire);
+    const auto eligible = g_capture_stable_eligible_apply_generation.load(std::memory_order_acquire);
+    const auto after = g_last_apply_generation.load(std::memory_order_acquire);
+    return before != 0 && before == after && verified == after && eligible == after;
+  }
+
+  bool apply(const DisplayApplyRequest &request, ApplyVerificationTicket *verification_ticket) {
     // Remember the session's virtual display before the APPLY payload is built so the
     // helper can exclude it from the pre-apply baseline it may capture.
     if (request.session) {
@@ -1396,10 +1449,11 @@ namespace display_helper_integration {
         statefile::remember_virtual_display_device(vd_id);
       }
     }
-    return apply_internal(request, true);
+    return apply_internal(request, true, verification_ticket);
   }
 
   bool revert(bool prefer_golden_if_current_missing) {
+    invalidate_apply_verification();
     clear_pending_apply();
     if (!ensure_helper_started()) {
       BOOST_LOG(info) << "Display helper unavailable; cannot send revert.";
@@ -1419,6 +1473,7 @@ namespace display_helper_integration {
   }
 
   bool disarm_pending_restore() {
+    invalidate_apply_verification();
     return disarm_helper_restore_if_running();
   }
 
@@ -1434,6 +1489,7 @@ namespace display_helper_integration {
   }
 
   bool reset_persistence() {
+    invalidate_apply_verification();
     if (!ensure_helper_started()) {
       BOOST_LOG(info) << "Display helper unavailable; cannot reset persistence.";
       return false;
@@ -1456,12 +1512,16 @@ namespace display_helper_integration {
     }
     BOOST_LOG(info) << "Display helper: sending SNAPSHOT_CURRENT request.";
     const auto payload = build_snapshot_exclude_payload();
-    const bool legacy_helper = use_legacy_helper_engine();
-    const bool ok = legacy_helper ?
-                      platf::display_helper_client::send_snapshot_current(payload) :
-                      platf::display_helper_client::send_snapshot_current_and_wait(payload);
+    // Wire behavior is selected from the helper that actually answered APPLY,
+    // not from a configuration value that may have changed while a helper was
+    // being reused. An unknown connection dispatches in pipe order; APPLY has
+    // its own pre-apply baseline fallback if that snapshot is not yet saved.
+    const bool v2_helper = platf::display_helper_client::uses_v2_response_protocol();
+    const bool ok = v2_helper ?
+                      platf::display_helper_client::send_snapshot_current_and_wait(payload) :
+                      platf::display_helper_client::send_snapshot_current(payload);
     BOOST_LOG(info) << "Display helper: SNAPSHOT_CURRENT "
-                    << (legacy_helper ? "dispatch" : "completion")
+                    << (v2_helper ? "completion" : "dispatch")
                     << " result=" << (ok ? "true" : "false");
     return ok;
   }
@@ -1528,7 +1588,7 @@ namespace display_helper_integration {
     }
 
     BOOST_LOG(info) << "Display helper: applying deferred configuration for session " << pending.session_id << ".";
-    const bool ok = apply_internal(pending.request, false);
+    const bool ok = apply_internal(pending.request, false, nullptr);
     if (!ok) {
       pending.attempts += 1;
       pending.request.session = nullptr;

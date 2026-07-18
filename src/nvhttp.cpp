@@ -2809,7 +2809,8 @@ namespace nvhttp {
 
 
       if (request) {
-        const bool applied = display_helper_integration::apply(*request);
+        display_helper_integration::ApplyVerificationTicket verification_ticket;
+        const bool applied = display_helper_integration::apply(*request, &verification_ticket);
         launch_session->display_config_preapplied = applied;
         if (!applied) {
           if (helper_session_available) {
@@ -2819,9 +2820,10 @@ namespace nvhttp {
           auto gate_promise = std::make_shared<std::promise<rtsp_stream::launch_session_t::display_helper_gate_status_e>>();
           launch_session->display_helper_gate = gate_promise->get_future().share();
           BOOST_LOG(debug) << "Display helper: gating capture start on helper verification (non-blocking session start).";
-          std::thread([gate_promise]() {
-            constexpr auto kVerificationTimeout = std::chrono::seconds(6);
-            const auto status = display_helper_integration::wait_for_apply_verification(kVerificationTimeout);
+          std::thread([gate_promise, verification_ticket]() {
+            const auto status = display_helper_integration::wait_for_apply_verification(
+              verification_ticket,
+              display_helper_integration::kApplyVerificationTimeout);
             rtsp_stream::launch_session_t::display_helper_gate_status_e gate_status =
               rtsp_stream::launch_session_t::display_helper_gate_status_e::proceed_gaveup;
             if (status == display_helper_integration::ApplyVerificationStatus::Verified) {
@@ -3225,7 +3227,8 @@ namespace nvhttp {
         }
 
         if (request) {
-          const bool applied = display_helper_integration::apply(*request);
+          display_helper_integration::ApplyVerificationTicket verification_ticket;
+          const bool applied = display_helper_integration::apply(*request, &verification_ticket);
           if (!applied) {
             if (helper_session_available) {
               BOOST_LOG(warning) << "Display helper: failed to apply display configuration; continuing with existing display.";
@@ -3234,9 +3237,10 @@ namespace nvhttp {
             auto gate_promise = std::make_shared<std::promise<rtsp_stream::launch_session_t::display_helper_gate_status_e>>();
             launch_session->display_helper_gate = gate_promise->get_future().share();
             BOOST_LOG(debug) << "Display helper: gating capture start on helper verification (non-blocking session resume).";
-            std::thread([gate_promise]() {
-              constexpr auto kVerificationTimeout = std::chrono::seconds(6);
-              const auto status = display_helper_integration::wait_for_apply_verification(kVerificationTimeout);
+            std::thread([gate_promise, verification_ticket]() {
+              const auto status = display_helper_integration::wait_for_apply_verification(
+                verification_ticket,
+                display_helper_integration::kApplyVerificationTimeout);
               rtsp_stream::launch_session_t::display_helper_gate_status_e gate_status =
                 rtsp_stream::launch_session_t::display_helper_gate_status_e::proceed_gaveup;
               if (status == display_helper_integration::ApplyVerificationStatus::Verified) {
