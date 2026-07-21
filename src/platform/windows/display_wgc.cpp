@@ -269,7 +269,7 @@ namespace platf::dxgi {
         note_wgc_desktop_switch();
         return capture_e::reinit;
       }
-      if (_lsfg_variants.empty() || !_lsfg_variants[_lsfg_active_variant]->has_frame()) {
+      if (!_lsfg || !_lsfg->has_frame()) {
         if (is_wgc_constant_mode()) {
           return forward_cached_wgc_frame(_last_cached_frame, img_out);
         }
@@ -307,33 +307,20 @@ namespace platf::dxgi {
         return capture_e::reinit;
       }
 
-      // Hot-apply mid-stream: rebuild when any pipeline-shaping option changes.
-      // Disabling adaptive quality deliberately leaves only the base pipeline, so
-      // the default mode does not pay for dormant resources or pre-pass work.
-      if (!_lsfg_variants.empty()) {
+      // Hot-apply mid-stream: rebuild when a pipeline-shaping option changes.
+      if (_lsfg) {
         const auto desired_flow_scale = resolve_lsfg_base_flow_percent(desc.Width, desc.Height) / 100.0f;
         const auto desired_performance_mode = config::video.lsfg.performance_mode;
-        const auto desired_adaptive_quality = config::video.lsfg.adaptive_quality;
         if (desired_flow_scale != _lsfg_flow_scale ||
-            desired_performance_mode != _lsfg_performance_mode ||
-            desired_adaptive_quality != _lsfg_adaptive_quality) {
-          BOOST_LOG(info) << "LSFG: pipeline options changed mid-stream; rebuilding quality variants";
-          _lsfg_variants.clear();
-          _lsfg_active_variant = 0;
-          _lsfg_over_budget_samples = 0;
-          _lsfg_recovery_samples = 0;
-          _lsfg_last_generated_gpu_ms = -1.0;
+            desired_performance_mode != _lsfg_performance_mode) {
+          BOOST_LOG(info) << "LSFG: pipeline options changed mid-stream; rebuilding pipeline";
+          _lsfg.reset();
         } else {
-          for (auto &variant : _lsfg_variants) {
-            variant->update_live_options(config::video.lsfg.max_multiplier);
-          }
+          _lsfg->update_live_options(config::video.lsfg.max_multiplier);
         }
       }
 
-      // Always create the configured pipeline. Only allocate lower-cost fallbacks
-      // when adaptive quality is enabled, and deduplicate clamped profiles (for
-      // example, 25% performance would otherwise create three identical pipelines).
-      if (lsfg_wanted && _lsfg_variants.empty()) {
+      if (lsfg_wanted && !_lsfg) {
         lsfg_framegen_t::options_t base_options;
         const int base_flow_percent = resolve_lsfg_base_flow_percent(desc.Width, desc.Height);
         base_options.flow_scale = base_flow_percent / 100.0f;
@@ -345,38 +332,10 @@ namespace platf::dxgi {
           base_options.target_fps = _config.framerateX100 / 100.0;
         }
 
-        const auto variant_options = lsfg_framegen_t::quality_profiles(
-          base_options,
-          config::video.lsfg.adaptive_quality
-        );
-
-        std::vector<std::unique_ptr<lsfg_framegen_t>> variants;
-        variants.reserve(variant_options.size());
-        for (const auto &options : variant_options) {
-          auto variant = lsfg_framegen_t::create(device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, options);
-          if (!variant) {
-            break;
-          }
-          variants.push_back(std::move(variant));
-        }
-        if (!variants.empty()) {
-          _lsfg_variants = std::move(variants);
-          _lsfg_active_variant = 0;
-          _lsfg_over_budget_samples = 0;
-          _lsfg_recovery_samples = 0;
-          _lsfg_last_generated_gpu_ms = -1.0;
+        _lsfg = lsfg_framegen_t::create(device.get(), device_ctx.get(), desc.Width, desc.Height, capture_format, base_options);
+        if (_lsfg) {
           _lsfg_flow_scale = base_options.flow_scale;
           _lsfg_performance_mode = base_options.performance_mode;
-          _lsfg_adaptive_quality = config::video.lsfg.adaptive_quality;
-          if (!_lsfg_adaptive_quality) {
-            BOOST_LOG(info) << "LSFG: adaptive quality disabled; using one pipeline";
-          } else if (_lsfg_variants.size() == variant_options.size()) {
-            BOOST_LOG(info) << "LSFG: prebuilt " << _lsfg_variants.size() << " adaptive quality variants";
-          } else {
-            BOOST_LOG(warning) << "LSFG: only " << _lsfg_variants.size()
-                               << " of " << variant_options.size()
-                               << " adaptive quality variants could be allocated";
-          }
         } else {
           _lsfg_failed = true;
           pacing_allow_above_refresh = false;
@@ -385,7 +344,7 @@ namespace platf::dxgi {
       }
     }
 
-    if (!_lsfg_variants.empty()) {
+    if (_lsfg) {
       return snapshot_lsfg(pull_free_image_cb, img_out, have_new_frame);
     }
 
@@ -482,75 +441,10 @@ namespace platf::dxgi {
   }
 
   capture_e display_wgc_ipc_vram_t::snapshot_lsfg(const pull_free_image_cb_t &pull_free_image_cb, std::shared_ptr<platf::img_t> &img_out, bool have_new_frame) {
-    if (_lsfg_variants.empty() || _lsfg_active_variant >= _lsfg_variants.size()) {
+    if (!_lsfg) {
       return capture_e::error;
     }
-
-    // Leave one quarter of every requested output interval for the source copy,
-    // optical-flow pre-pass, encoder and scheduler. Neither query path flushes
-    // nor waits for the GPU, so adaptation cannot introduce a capture hitch.
-    auto &timed_variant = *_lsfg_variants[_lsfg_active_variant];
-    const auto gpu_time = timed_variant.poll_generated_gpu_time();
-    const auto frame_budget = timed_variant.target_frame_duration() * 3 / 4;
-    if (gpu_time) {
-      _lsfg_last_generated_gpu_ms = std::chrono::duration<double, std::milli>(*gpu_time).count();
-    }
-    const auto now = std::chrono::steady_clock::now();
-    const bool timing_backlogged = timed_variant.generated_gpu_timing_backlogged();
-    const bool gpu_work_overdue = timed_variant.gpu_work_overdue(now, frame_budget);
-    const bool adaptive_quality = config::video.lsfg.adaptive_quality;
-    bool variant_changed = false;
-
-    if (!adaptive_quality) {
-      _lsfg_active_variant = 0;
-      _lsfg_over_budget_samples = 0;
-      _lsfg_recovery_samples = 0;
-    } else if (gpu_work_overdue || timing_backlogged || (gpu_time && *gpu_time >= frame_budget)) {
-      _lsfg_recovery_samples = 0;
-      if (++_lsfg_over_budget_samples >= 4 && _lsfg_active_variant + 1 < _lsfg_variants.size()) {
-        ++_lsfg_active_variant;
-        variant_changed = true;
-        _lsfg_over_budget_samples = 0;
-        BOOST_LOG(warning) << "LSFG: generated-frame GPU budget exceeded; selecting adaptive quality step "
-                           << _lsfg_active_variant;
-      }
-    } else if (gpu_time) {
-      _lsfg_over_budget_samples = 0;
-      // Quality recovery is deliberately much slower than degradation. Requiring
-      // 240 comfortably-under-budget generated frames avoids oscillation when a
-      // game alternates between light and heavy scenes.
-      if (_lsfg_active_variant > 0 && *gpu_time * 2 <= frame_budget) {
-        if (++_lsfg_recovery_samples >= 240) {
-          --_lsfg_active_variant;
-          variant_changed = true;
-          _lsfg_recovery_samples = 0;
-          BOOST_LOG(info) << "LSFG: sustained GPU headroom; restoring adaptive quality step "
-                          << _lsfg_active_variant;
-        }
-      } else {
-        _lsfg_recovery_samples = 0;
-      }
-    }
-
-    if (now - _lsfg_adaptation_log_at >= 10s) {
-      BOOST_LOG(debug) << "LSFG adaptive quality: enabled=" << (adaptive_quality ? "yes" : "no")
-                       << " step=" << _lsfg_active_variant
-                       << " variants=" << _lsfg_variants.size()
-                       << " tail_gpu_ms=" << _lsfg_last_generated_gpu_ms
-                       << " pending_fences=" << timed_variant.pending_gpu_work_fences()
-                       << " work_overdue=" << (gpu_work_overdue ? "yes" : "no")
-                       << " timing_backlogged=" << (timing_backlogged ? "yes" : "no")
-                       << " over_budget_samples=" << _lsfg_over_budget_samples;
-      _lsfg_adaptation_log_at = now;
-    }
-
-    auto &lsfg = *_lsfg_variants[_lsfg_active_variant];
-    if (variant_changed) {
-      // Inactive variants intentionally receive no per-frame work. Reset the
-      // selected pipeline so it warms from current frames instead of presenting
-      // source/timeline state left over from its previous active period.
-      lsfg.reset_history();
-    }
+    auto &lsfg = *_lsfg;
 
     // Stage the fresh helper frame while its keyed mutex is held, then release it
     // immediately. Interpolated slots commit the capture only after rendering so
@@ -606,9 +500,6 @@ namespace platf::dxgi {
     // such as 33 -> 60 reintroduce the cadence jitter the timeline removes.
     if (!generate && !passthrough_pending) {
       commit_staged_capture();
-      if (adaptive_quality) {
-        lsfg.submit_gpu_work_fence();
-      }
       return capture_e::no_new_content;
     }
 
@@ -662,11 +553,6 @@ namespace platf::dxgi {
     _last_cached_frame = img;
 
     commit_staged_capture();
-    if (adaptive_quality) {
-      // This comes after staged source commits, so its completion represents the
-      // full LSFG GPU workload for this slot, not only the generated-frame tail.
-      lsfg.submit_gpu_work_fence();
-    }
     return capture_e::ok;
   }
 

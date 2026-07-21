@@ -247,9 +247,6 @@ namespace config {
       /// Use Lossless Scaling's "performance" optical-flow shader set instead of "quality"
       /// (default). Lighter/faster, lower visual fidelity.
       bool performance_mode;
-      /// Temporarily select prebuilt lower-cost LSFG variants when the GPU cannot
-      /// complete the capture workload within an output-frame budget.
-      bool adaptive_quality;
       /// Maximum time an LSFG output slot waits for a late WGC source frame before
       /// generating. Zero preserves the most even output cadence. Range 0..3 ms.
       int pacing_grace_ms;

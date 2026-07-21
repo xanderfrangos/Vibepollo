@@ -2759,34 +2759,6 @@ editing the `conf` file in a text editor. Use the examples as reference.
     </tr>
 </table>
 
-### lsfg_adaptive_quality
-
-<table>
-    <tr>
-        <td>Description</td>
-        <td colspan="2">
-            Prebuilds lower-cost LSFG profiles and temporarily selects them when the active
-            pipeline cannot complete within the output-frame GPU budget. Inactive profiles do
-            not receive per-frame optical-flow work, and a selected profile warms from current
-            source frames before generating. Quality is restored after sustained GPU headroom.
-            @note{Applies to Windows only. Enabling this option uses additional VRAM for the
-            prebuilt profiles.}
-        </td>
-    </tr>
-    <tr>
-        <td>Default</td>
-        <td colspan="2">@code{}
-            disabled
-            @endcode</td>
-    </tr>
-    <tr>
-        <td>Example</td>
-        <td colspan="2">@code{}
-            lsfg_adaptive_quality = enabled
-            @endcode</td>
-    </tr>
-</table>
-
 ### lsfg_pacing_grace_ms
 
 <table>

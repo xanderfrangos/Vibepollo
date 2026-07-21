@@ -23,45 +23,6 @@ namespace {
     EXPECT_EQ(lsfg_framegen_t::automatic_flow_scale_percent(7680, 4320), 50);
   }
 
-  TEST(LsfgPolicy, AdaptiveOffBuildsOnlyConfiguredProfile) {
-    lsfg_framegen_t::options_t base;
-    base.flow_scale = 1.0f;
-
-    const auto profiles = lsfg_framegen_t::quality_profiles(base, false);
-
-    ASSERT_EQ(profiles.size(), 1u);
-    EXPECT_FLOAT_EQ(profiles.front().flow_scale, 1.0f);
-    EXPECT_FALSE(profiles.front().performance_mode);
-  }
-
-  TEST(LsfgPolicy, AdaptiveProfilesAreDeduplicatedAtMinimumScale) {
-    lsfg_framegen_t::options_t base;
-    base.flow_scale = 0.25f;
-    base.performance_mode = true;
-
-    const auto profiles = lsfg_framegen_t::quality_profiles(base, true);
-
-    ASSERT_EQ(profiles.size(), 1u);
-    EXPECT_FLOAT_EQ(profiles.front().flow_scale, 0.25f);
-    EXPECT_TRUE(profiles.front().performance_mode);
-  }
-
-  TEST(LsfgPolicy, AdaptiveProfilesDescendWithoutDuplicates) {
-    lsfg_framegen_t::options_t base;
-    base.flow_scale = 0.5f;
-    base.performance_mode = false;
-
-    const auto profiles = lsfg_framegen_t::quality_profiles(base, true);
-
-    ASSERT_EQ(profiles.size(), 3u);
-    EXPECT_FLOAT_EQ(profiles[0].flow_scale, 0.5f);
-    EXPECT_FALSE(profiles[0].performance_mode);
-    EXPECT_FLOAT_EQ(profiles[1].flow_scale, 0.25f);
-    EXPECT_FALSE(profiles[1].performance_mode);
-    EXPECT_FLOAT_EQ(profiles[2].flow_scale, 0.25f);
-    EXPECT_TRUE(profiles[2].performance_mode);
-  }
-
   TEST(LsfgTimeline, GeneratesMidpointForThirtyToSixtyConversion) {
     const std::chrono::steady_clock::time_point previous {100s};
     const auto source_interval = 33333333ns;

@@ -446,34 +446,6 @@ float4 ps_main(VSOut i) : SV_Target {
     std::chrono::nanoseconds src_interval = 16ms;  // EMA between distinct frames
     std::chrono::nanoseconds frame_dur = 16ms;  // one client-requested frame interval
 
-    // A small ring keeps timestamp reads off the capture critical path.  GetData
-    // is always called with DONOTFLUSH, so an overloaded GPU simply makes a
-    // sample arrive later instead of making the capture thread wait for it.
-    struct timing_slot_t {
-      com_ptr<ID3D11Query> disjoint;
-      com_ptr<ID3D11Query> begin;
-      com_ptr<ID3D11Query> end;
-      bool pending = false;
-    };
-    std::array<timing_slot_t, 8> timing_slots;
-    std::size_t timing_read = 0;
-    std::size_t timing_write = 0;
-    std::size_t timing_pending = 0;
-
-    // Event queries fence the entire command stream submitted for a capture
-    // slot, including source copies and every warm variant's optical-flow
-    // pre-pass. Unlike a timestamp around the generation tail, this exposes
-    // whether GPU queueing is making the whole LSFG workload miss its deadline.
-    struct fence_slot_t {
-      com_ptr<ID3D11Query> event;
-      std::chrono::steady_clock::time_point submitted {};
-      bool pending = false;
-    };
-    std::array<fence_slot_t, 8> fence_slots;
-    std::size_t fence_read = 0;
-    std::size_t fence_write = 0;
-    std::size_t fence_pending = 0;
-
     // Set on each real arrival, cleared once shown as a genuine pass-through: lets the
     // caller settle on the true final frame once generation stops being due, instead of
     // leaving the last generated approximation on screen forever. See mark_passthrough_shown().
@@ -493,7 +465,6 @@ float4 ps_main(VSOut i) : SV_Target {
     }
 
     bool build_pipeline();
-    bool build_timing_queries();
     void run_steps(const std::vector<step_t> &steps, std::size_t fidx);
     void recompute_frame_dur();
   };
@@ -908,29 +879,6 @@ float4 ps_main(VSOut i) : SV_Target {
 
   lsfg_framegen_t::~lsfg_framegen_t() = default;
 
-  bool lsfg_framegen_t::impl_t::build_timing_queries() {
-    D3D11_QUERY_DESC timestamp_desc {};
-    timestamp_desc.Query = D3D11_QUERY_TIMESTAMP;
-    D3D11_QUERY_DESC disjoint_desc {};
-    disjoint_desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
-    D3D11_QUERY_DESC event_desc {};
-    event_desc.Query = D3D11_QUERY_EVENT;
-
-    for (std::size_t i = 0; i < timing_slots.size(); ++i) {
-      auto &slot = timing_slots[i];
-      if (FAILED(device->CreateQuery(&disjoint_desc, slot.disjoint.put())) ||
-          FAILED(device->CreateQuery(&timestamp_desc, slot.begin.put())) ||
-          FAILED(device->CreateQuery(&timestamp_desc, slot.end.put())) ||
-          FAILED(device->CreateQuery(&event_desc, fence_slots[i].event.put()))) {
-        BOOST_LOG(warning) << "LSFG: GPU timing queries unavailable; adaptive quality disabled";
-        timing_slots = {};
-        fence_slots = {};
-        return false;
-      }
-    }
-    return true;
-  }
-
   std::optional<std::filesystem::path> lsfg_framegen_t::find_lossless_dll() {
     // explicit override for development / unusual installs
     if (const auto *env = std::getenv("LSFG_DLL_PATH")) {
@@ -973,37 +921,6 @@ float4 ps_main(VSOut i) : SV_Target {
     }
     const double t = (pixels - min_pixels) / (max_pixels - min_pixels);
     return static_cast<int>(std::lround(100.0 - t * 50.0));
-  }
-
-  std::vector<lsfg_framegen_t::options_t> lsfg_framegen_t::quality_profiles(const options_t &base, bool adaptive_quality) {
-    std::vector<options_t> profiles {base};
-    if (!adaptive_quality) {
-      return profiles;
-    }
-
-    auto append_unique = [&](options_t candidate) {
-      const auto duplicate = std::ranges::any_of(profiles, [&](const auto &existing) {
-        return existing.flow_scale == candidate.flow_scale &&
-               existing.performance_mode == candidate.performance_mode;
-      });
-      if (!duplicate) {
-        profiles.push_back(std::move(candidate));
-      }
-    };
-
-    const int base_flow_percent = static_cast<int>(std::lround(std::clamp(base.flow_scale, 0.25f, 1.0f) * 100.0f));
-    auto lower_cost = base;
-    lower_cost.flow_scale = std::max(25, base_flow_percent - 25) / 100.0f;
-    append_unique(lower_cost);
-
-    auto lowest_cost = lower_cost;
-    if (base.performance_mode) {
-      lowest_cost.flow_scale = std::max(25, base_flow_percent - 35) / 100.0f;
-    } else {
-      lowest_cost.performance_mode = true;
-    }
-    append_unique(lowest_cost);
-    return profiles;
   }
 
   #ifdef SUNSHINE_TESTS
@@ -1140,11 +1057,7 @@ float4 ps_main(VSOut i) : SV_Target {
       return nullptr;
     }
 
-    // Timing is optional: a driver which does not expose timestamp queries can
-    // still use LSFG normally, just without automatic quality adaptation.
-    impl.build_timing_queries();
-
-    BOOST_LOG(info) << "LSFG: adaptive frame generation active [" << width << 'x' << height
+    BOOST_LOG(info) << "LSFG: frame generation active [" << width << 'x' << height
                     << ", target " << options.target_fps << " fps"
                     << ", flow scale " << impl.options.flow_scale
                     << ", cap " << impl.options.max_multiplier << "x, "
@@ -1362,16 +1275,6 @@ float4 ps_main(VSOut i) : SV_Target {
       return false;
     }
 
-    impl_t::timing_slot_t *timing = nullptr;
-    if (impl.timing_pending < impl.timing_slots.size()) {
-      auto &candidate = impl.timing_slots[impl.timing_write];
-      if (candidate.disjoint && candidate.begin && candidate.end && !candidate.pending) {
-        timing = &candidate;
-        impl.ctx->Begin(timing->disjoint.get());
-        impl.ctx->End(timing->begin.get());
-      }
-    }
-
     const auto data = make_cb_data(phase, impl.inv_flow, impl.hdr);
     impl.ctx->UpdateSubresource(impl.cbp[0].get(), 0, nullptr, &data, 0, 0);
 
@@ -1392,13 +1295,6 @@ float4 ps_main(VSOut i) : SV_Target {
       }
     } else {
       impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), rtv, out_width, out_height);
-    }
-    if (timing) {
-      impl.ctx->End(timing->end.get());
-      impl.ctx->End(timing->disjoint.get());
-      timing->pending = true;
-      impl.timing_write = (impl.timing_write + 1) % impl.timing_slots.size();
-      ++impl.timing_pending;
     }
     return true;
   }
@@ -1448,84 +1344,6 @@ float4 ps_main(VSOut i) : SV_Target {
     return true;
   }
 
-  std::optional<std::chrono::nanoseconds> lsfg_framegen_t::poll_generated_gpu_time() {
-    auto &impl = *_impl;
-    if (impl.timing_pending == 0) {
-      return std::nullopt;
-    }
-
-    auto &slot = impl.timing_slots[impl.timing_read];
-    if (!slot.pending) {
-      return std::nullopt;
-    }
-
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint {};
-    const auto disjoint_status = impl.ctx->GetData(
-      slot.disjoint.get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH
-    );
-    if (disjoint_status != S_OK) {
-      return std::nullopt;
-    }
-
-    std::uint64_t begin = 0;
-    std::uint64_t end = 0;
-    const auto begin_status = impl.ctx->GetData(slot.begin.get(), &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-    const auto end_status = impl.ctx->GetData(slot.end.get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-    slot.pending = false;
-    impl.timing_read = (impl.timing_read + 1) % impl.timing_slots.size();
-    --impl.timing_pending;
-
-    if (begin_status != S_OK || end_status != S_OK || disjoint.Disjoint || disjoint.Frequency == 0 || end < begin) {
-      return std::nullopt;
-    }
-
-    const auto seconds = static_cast<long double>(end - begin) / static_cast<long double>(disjoint.Frequency);
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<long double>(seconds));
-  }
-
-  bool lsfg_framegen_t::generated_gpu_timing_backlogged() const {
-    const auto &impl = *_impl;
-    return impl.timing_pending == impl.timing_slots.size();
-  }
-
-  void lsfg_framegen_t::submit_gpu_work_fence() {
-    auto &impl = *_impl;
-    if (impl.fence_pending >= impl.fence_slots.size()) {
-      return;
-    }
-    auto &slot = impl.fence_slots[impl.fence_write];
-    if (!slot.event || slot.pending) {
-      return;
-    }
-    impl.ctx->End(slot.event.get());
-    slot.submitted = std::chrono::steady_clock::now();
-    slot.pending = true;
-    impl.fence_write = (impl.fence_write + 1) % impl.fence_slots.size();
-    ++impl.fence_pending;
-  }
-
-  bool lsfg_framegen_t::gpu_work_overdue(std::chrono::steady_clock::time_point now, std::chrono::nanoseconds budget) {
-    auto &impl = *_impl;
-    while (impl.fence_pending > 0) {
-      auto &slot = impl.fence_slots[impl.fence_read];
-      if (!slot.pending) {
-        break;
-      }
-      const auto status = impl.ctx->GetData(slot.event.get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
-      if (status != S_OK) {
-        return now - slot.submitted >= budget;
-      }
-      slot.pending = false;
-      impl.fence_read = (impl.fence_read + 1) % impl.fence_slots.size();
-      --impl.fence_pending;
-    }
-    return false;
-  }
-
-  std::size_t lsfg_framegen_t::pending_gpu_work_fences() const {
-    return _impl->fence_pending;
-  }
-
   std::chrono::nanoseconds lsfg_framegen_t::target_frame_duration() const {
     return _impl->frame_dur;
   }
@@ -1545,26 +1363,6 @@ float4 ps_main(VSOut i) : SV_Target {
   void lsfg_framegen_t::update_live_options(int max_multiplier) {
     auto &impl = *_impl;
     impl.options.max_multiplier = std::clamp(max_multiplier, 2, 20);
-  }
-
-  void lsfg_framegen_t::reset_history() {
-    auto &impl = *_impl;
-    impl.frames_seen = 0;
-    impl.has_capture = false;
-    impl.has_source_interval = false;
-    impl.generation_active = false;
-    impl.emit_passthrough = true;
-    impl.passthrough_source_frame.reset();
-    impl.previous_arrival = {};
-    impl.last_arrival = {};
-    impl.presentation_output_origin.reset();
-    impl.presentation_media_origin.reset();
-    impl.selected_media_time.reset();
-    impl.generated_media_time.reset();
-    impl.last_presented_media_time.reset();
-    impl.last_distinct_qpc = 0;
-    impl.src_interval = 16ms;
-    impl.passthrough_dirty = true;
   }
 
   ID3D11Texture2D *lsfg_framegen_t::latest_texture() const {

@@ -176,7 +176,6 @@ const defaultGroups = [
       lsfg_auto_flow_scale: true,
       lsfg_max_multiplier: 4,
       lsfg_performance_mode: false,
-      lsfg_adaptive_quality: false,
       lsfg_pacing_grace_ms: 0,
     },
   },
@@ -625,7 +624,6 @@ export const useConfigStore = defineStore('config', () => {
       'lsfg_capture_framegen',
       'lsfg_auto_flow_scale',
       'lsfg_performance_mode',
-      'lsfg_adaptive_quality',
     ];
     const allBoolKeys = playniteBoolKeys.concat(otherBoolKeys);
     const toBool = (v: any): boolean | null => {

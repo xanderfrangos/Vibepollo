@@ -11,12 +11,10 @@ describe('config store normalization', () => {
       lsfg_capture_framegen: 'enabled',
       lsfg_auto_flow_scale: 'false',
       lsfg_performance_mode: 'on',
-      lsfg_adaptive_quality: '0',
     });
 
     expect(store.config.lsfg_capture_framegen).toBe(true);
     expect(store.config.lsfg_auto_flow_scale).toBe(false);
     expect(store.config.lsfg_performance_mode).toBe(true);
-    expect(store.config.lsfg_adaptive_quality).toBe(false);
   });
 });

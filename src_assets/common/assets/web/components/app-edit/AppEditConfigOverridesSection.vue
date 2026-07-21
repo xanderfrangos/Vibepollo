@@ -955,7 +955,6 @@ const ALLOWED_OVERRIDE_KEYS = new Set<string>([
   'lsfg_auto_flow_scale',
   'lsfg_max_multiplier',
   'lsfg_performance_mode',
-  'lsfg_adaptive_quality',
   'lsfg_pacing_grace_ms',
 
   // Codec / capture negotiation

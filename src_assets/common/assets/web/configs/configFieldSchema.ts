@@ -46,7 +46,6 @@ const SWITCH_KEYS = new Set<string>([
   'lsfg_capture_framegen',
   'lsfg_auto_flow_scale',
   'lsfg_performance_mode',
-  'lsfg_adaptive_quality',
 ]);
 
 const NUMBER_FIELD_OVERRIDES: Record<string, Partial<ConfigFieldDefinition>> = {

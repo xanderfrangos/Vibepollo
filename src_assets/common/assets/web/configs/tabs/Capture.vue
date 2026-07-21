@@ -566,10 +566,6 @@ const shouldShowSoftware = computed(() => showAll() || props.currentTab === 'sw'
               v-model="config.lsfg_performance_mode"
             />
             <ConfigFieldRenderer
-              setting-key="lsfg_adaptive_quality"
-              v-model="config.lsfg_adaptive_quality"
-            />
-            <ConfigFieldRenderer
               setting-key="lsfg_pacing_grace_ms"
               v-model="config.lsfg_pacing_grace_ms"
             />
