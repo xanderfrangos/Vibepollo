@@ -72,6 +72,66 @@ namespace platf::dxgi {
       ext_t extent {};
     };
 
+    // A keyed-mutex bridge connects two D3D11 devices on the same adapter.
+    // owner is the device that allocates the texture; peer is the device that
+    // opens the shared handle. Keys alternate 0 (owner) and 1 (peer).
+    struct shared_tex_t {
+      com_ptr<ID3D11Texture2D> owner;
+      com_ptr<ID3D11Texture2D> peer;
+      com_ptr<IDXGIKeyedMutex> owner_mutex;
+      com_ptr<IDXGIKeyedMutex> peer_mutex;
+      com_ptr<ID3D11RenderTargetView> owner_rtv;
+    };
+
+    bool make_shared_tex(
+      ID3D11Device *owner_device,
+      ID3D11Device *peer_device,
+      ext_t extent,
+      DXGI_FORMAT format,
+      bool render_target,
+      shared_tex_t &out
+    ) {
+      D3D11_TEXTURE2D_DESC desc {};
+      desc.Width = extent.w;
+      desc.Height = extent.h;
+      desc.MipLevels = 1;
+      desc.ArraySize = 1;
+      desc.Format = format;
+      desc.SampleDesc = {1, 0};
+      desc.Usage = D3D11_USAGE_DEFAULT;
+      desc.BindFlags = render_target ? D3D11_BIND_RENDER_TARGET : 0;
+      desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+
+      out = {};
+      auto status = owner_device->CreateTexture2D(&desc, nullptr, out.owner.put());
+      if (FAILED(status)) {
+        BOOST_LOG(warning) << "LSFG: failed to create shared cross-device texture [0x" << util::hex(status).to_string_view() << ']';
+        return false;
+      }
+      out.owner_mutex = out.owner.try_as<IDXGIKeyedMutex>();
+      if (render_target && FAILED(owner_device->CreateRenderTargetView(out.owner.get(), nullptr, out.owner_rtv.put()))) {
+        BOOST_LOG(warning) << "LSFG: failed to create shared cross-device render target";
+        return false;
+      }
+      auto resource = out.owner.try_as<IDXGIResource>();
+      HANDLE handle = nullptr;
+      if (!out.owner_mutex || !resource || FAILED(resource->GetSharedHandle(&handle)) || !handle) {
+        BOOST_LOG(warning) << "LSFG: failed to create keyed-mutex shared texture handle";
+        return false;
+      }
+      status = peer_device->OpenSharedResource(handle, __uuidof(ID3D11Texture2D), out.peer.put_void());
+      if (FAILED(status) || !out.peer) {
+        BOOST_LOG(warning) << "LSFG: failed to open cross-device texture [0x" << util::hex(status).to_string_view() << ']';
+        return false;
+      }
+      out.peer_mutex = out.peer.try_as<IDXGIKeyedMutex>();
+      if (!out.peer_mutex) {
+        BOOST_LOG(warning) << "LSFG: opened cross-device texture has no keyed mutex";
+        return false;
+      }
+      return true;
+    }
+
     bool make_tex2d(ID3D11Device *device, ext_t extent, DXGI_FORMAT format, bool uav, const void *init, std::uint32_t init_pitch, tex_t &out) {
       D3D11_TEXTURE2D_DESC desc {};
       desc.Width = extent.w;
@@ -337,6 +397,13 @@ float4 ps_main(VSOut i) : SV_Target {
   struct lsfg_framegen_t::impl_t {
     com_ptr<ID3D11Device> device;
     com_ptr<ID3D11DeviceContext> ctx;
+    // Capture owns the WGC and encoder textures. When dedicated is set, device
+    // owns only LSFG compute and the bridges below transfer completed frames.
+    com_ptr<ID3D11Device> capture_device;
+    com_ptr<ID3D11DeviceContext> capture_ctx;
+    bool dedicated = false;
+    shared_tex_t input_bridge;
+    shared_tex_t output_bridge;
     HMODULE lossless_module = nullptr;
 
     ext_t extent {};
@@ -995,6 +1062,8 @@ float4 ps_main(VSOut i) : SV_Target {
 
     std::unique_ptr<lsfg_framegen_t> self {new lsfg_framegen_t()};
     auto &impl = *self->_impl;
+    impl.capture_device.copy_from(device);
+    impl.capture_ctx.copy_from(ctx);
     impl.device.copy_from(device);
     impl.ctx.copy_from(ctx);
     impl.extent = {width, height};
@@ -1007,6 +1076,45 @@ float4 ps_main(VSOut i) : SV_Target {
     impl.recompute_frame_dur();
     impl.pool_size = 2;
 
+    // Put LSFG compute in a separate D3D11 context so it can be scheduled above
+    // game rendering without changing the capture/encoder device's priority.
+    // Any failure keeps the existing single-device implementation intact.
+    auto capture_dxgi = impl.capture_device.try_as<IDXGIDevice>();
+    com_ptr<IDXGIAdapter> adapter;
+    com_ptr<ID3D11Device> dedicated_device;
+    com_ptr<ID3D11DeviceContext> dedicated_ctx;
+    if (capture_dxgi && SUCCEEDED(capture_dxgi->GetAdapter(adapter.put())) && adapter &&
+        SUCCEEDED(D3D11CreateDevice(
+          adapter.get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+          nullptr, 0, D3D11_SDK_VERSION, dedicated_device.put(), nullptr, dedicated_ctx.put()
+        ))) {
+      shared_tex_t input_bridge;
+      shared_tex_t output_bridge;
+      if (make_shared_tex(device, dedicated_device.get(), impl.extent, capture_format, false, input_bridge) &&
+          make_shared_tex(dedicated_device.get(), device, impl.extent, capture_format, true, output_bridge)) {
+        auto dedicated_dxgi = dedicated_device.try_as<IDXGIDevice>();
+        if (dedicated_dxgi) {
+          // Absolute priority 16 is the lowest soft-realtime band: it can preempt
+          // lower-priority game work, but periodically yields rather than starving it.
+          constexpr int k_soft_realtime_priority = 0x40000010;
+          auto priority_status = dedicated_dxgi->SetGPUThreadPriority(k_soft_realtime_priority);
+          if (FAILED(priority_status)) {
+            BOOST_LOG(warning) << "LSFG: soft-realtime GPU priority request failed [0x"
+                               << util::hex(priority_status).to_string_view() << "]; falling back to relative +7";
+            priority_status = dedicated_dxgi->SetGPUThreadPriority(7);
+          }
+          if (SUCCEEDED(priority_status)) {
+            impl.device = std::move(dedicated_device);
+            impl.ctx = std::move(dedicated_ctx);
+            impl.input_bridge = std::move(input_bridge);
+            impl.output_bridge = std::move(output_bridge);
+            impl.dedicated = true;
+            BOOST_LOG(info) << "LSFG: using dedicated soft-realtime GPU context";
+          }
+        }
+      }
+    }
+
     impl.lossless_module = LoadLibraryExW(dll_path->c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
     if (!impl.lossless_module) {
       BOOST_LOG(warning) << "LSFG: failed to load Lossless.dll as a resource module; frame generation disabled";
@@ -1015,15 +1123,15 @@ float4 ps_main(VSOut i) : SV_Target {
 
     impl.sources.resize(impl.pool_size);
     for (auto &src : impl.sources) {
-      if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, src)) {
+      if (!make_tex2d(impl.device.get(), impl.extent, capture_format, false, nullptr, 0, src)) {
         return nullptr;
       }
     }
-    if (!make_tex2d(device, impl.extent, capture_format, false, nullptr, 0, impl.latest)) {
+    if (!make_tex2d(impl.device.get(), impl.extent, capture_format, false, nullptr, 0, impl.latest)) {
       return nullptr;
     }
 
-    if (!impl.blitter.init(device)) {
+    if (!impl.blitter.init(impl.device.get())) {
       return nullptr;
     }
 
@@ -1045,14 +1153,48 @@ float4 ps_main(VSOut i) : SV_Target {
     return self;
   }
 
-  void lsfg_framegen_t::stage_capture(ID3D11Texture2D *src) {
+  bool lsfg_framegen_t::stage_capture(ID3D11Texture2D *src) {
     auto &impl = *_impl;
-    impl.ctx->CopyResource(impl.latest.tex.get(), src);
-    impl.has_capture = true;
+    if (!src) {
+      return false;
+    }
+    if (!impl.dedicated) {
+      impl.ctx->CopyResource(impl.latest.tex.get(), src);
+      impl.has_capture = true;
+      return true;
+    }
+    const auto acquire = impl.input_bridge.owner_mutex->AcquireSync(0, 0);
+    if (FAILED(acquire)) {
+      BOOST_LOG(warning) << "LSFG: capture-to-compute bridge is still busy [0x" << util::hex(acquire).to_string_view() << ']';
+      return false;
+    }
+    impl.capture_ctx->CopyResource(impl.input_bridge.owner.get(), src);
+    impl.capture_ctx->Flush();
+    const auto release = impl.input_bridge.owner_mutex->ReleaseSync(1);
+    if (FAILED(release)) {
+      BOOST_LOG(error) << "LSFG: failed to release capture-to-compute bridge [0x" << util::hex(release).to_string_view() << ']';
+      return false;
+    }
+    return true;
   }
 
   void lsfg_framegen_t::commit_capture(std::uint64_t frame_qpc) {
     auto &impl = *_impl;
+    if (impl.dedicated) {
+      const auto acquire = impl.input_bridge.peer_mutex->AcquireSync(1, INFINITE);
+      if (FAILED(acquire)) {
+        BOOST_LOG(error) << "LSFG: failed to acquire capture-to-compute bridge [0x" << util::hex(acquire).to_string_view() << ']';
+        return;
+      }
+      impl.ctx->CopyResource(impl.latest.tex.get(), impl.input_bridge.peer.get());
+      impl.ctx->Flush();
+      const auto release = impl.input_bridge.peer_mutex->ReleaseSync(0);
+      if (FAILED(release)) {
+        BOOST_LOG(error) << "LSFG: failed to release capture-to-compute bridge [0x" << util::hex(release).to_string_view() << ']';
+        return;
+      }
+      impl.has_capture = true;
+    }
     if (!impl.has_capture) {
       return;
     }
@@ -1216,7 +1358,7 @@ float4 ps_main(VSOut i) : SV_Target {
 
   bool lsfg_framegen_t::render_generated(float phase, ID3D11RenderTargetView *rtv, std::uint32_t out_width, std::uint32_t out_height) {
     auto &impl = *_impl;
-    if (impl.frames_seen < 2 || impl.passes.empty() || !rtv) {
+    if (impl.frames_seen < 2 || impl.passes.empty() || (!impl.dedicated && !rtv)) {
       return false;
     }
 
@@ -1235,13 +1377,73 @@ float4 ps_main(VSOut i) : SV_Target {
 
     const std::size_t fidx = impl.frames_seen - 1;
     impl.run_steps(impl.passes[0], fidx);
-    impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), rtv, out_width, out_height);
+    if (impl.dedicated) {
+      const auto acquire = impl.output_bridge.owner_mutex->AcquireSync(0, INFINITE);
+      if (FAILED(acquire)) {
+        BOOST_LOG(error) << "LSFG: failed to acquire compute-to-capture bridge [0x" << util::hex(acquire).to_string_view() << ']';
+        return false;
+      }
+      impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), impl.output_bridge.owner_rtv.get(), impl.extent.w, impl.extent.h);
+      impl.ctx->Flush();
+      const auto release = impl.output_bridge.owner_mutex->ReleaseSync(1);
+      if (FAILED(release)) {
+        BOOST_LOG(error) << "LSFG: failed to release compute-to-capture bridge [0x" << util::hex(release).to_string_view() << ']';
+        return false;
+      }
+    } else {
+      impl.blitter.blit(impl.ctx.get(), impl.outputs[0].srv.get(), rtv, out_width, out_height);
+    }
     if (timing) {
       impl.ctx->End(timing->end.get());
       impl.ctx->End(timing->disjoint.get());
       timing->pending = true;
       impl.timing_write = (impl.timing_write + 1) % impl.timing_slots.size();
       ++impl.timing_pending;
+    }
+    return true;
+  }
+
+  bool lsfg_framegen_t::copy_selected_to_capture(ID3D11Texture2D *dst, bool generated) {
+    auto &impl = *_impl;
+    if (!dst) {
+      return false;
+    }
+    ID3D11Texture2D *source = passthrough_texture();
+    if (!source) {
+      return false;
+    }
+    if (!impl.dedicated) {
+      if (!generated) {
+        impl.ctx->CopyResource(dst, source);
+      }
+      return true;
+    }
+    if (!generated) {
+      const auto compute_acquire = impl.output_bridge.owner_mutex->AcquireSync(0, INFINITE);
+      if (FAILED(compute_acquire)) {
+        BOOST_LOG(error) << "LSFG: failed to acquire compute-to-capture bridge [0x" << util::hex(compute_acquire).to_string_view() << ']';
+        return false;
+      }
+      impl.ctx->CopyResource(impl.output_bridge.owner.get(), source);
+      impl.ctx->Flush();
+      const auto compute_release = impl.output_bridge.owner_mutex->ReleaseSync(1);
+      if (FAILED(compute_release)) {
+        BOOST_LOG(error) << "LSFG: failed to release compute-to-capture bridge [0x" << util::hex(compute_release).to_string_view() << ']';
+        return false;
+      }
+    }
+
+    const auto capture_acquire = impl.output_bridge.peer_mutex->AcquireSync(1, INFINITE);
+    if (FAILED(capture_acquire)) {
+      BOOST_LOG(error) << "LSFG: failed to acquire compute-to-capture bridge [0x" << util::hex(capture_acquire).to_string_view() << ']';
+      return false;
+    }
+    impl.capture_ctx->CopyResource(dst, impl.output_bridge.peer.get());
+    impl.capture_ctx->Flush();
+    const auto capture_release = impl.output_bridge.peer_mutex->ReleaseSync(0);
+    if (FAILED(capture_release)) {
+      BOOST_LOG(error) << "LSFG: failed to release compute-to-capture bridge [0x" << util::hex(capture_release).to_string_view() << ']';
+      return false;
     }
     return true;
   }

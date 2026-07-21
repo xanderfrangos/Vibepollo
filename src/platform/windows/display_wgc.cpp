@@ -564,7 +564,11 @@ namespace platf::dxgi {
         return capture_status;
       }
       _frame_locked = true;
-      lsfg.stage_capture(gpu_tex.get());
+      if (!lsfg.stage_capture(gpu_tex.get())) {
+        _ipc_session->release();
+        _frame_locked = false;
+        return capture_e::error;
+      }
       _ipc_session->release();
       _frame_locked = false;
       staged_capture = true;
@@ -643,8 +647,11 @@ namespace platf::dxgi {
     if (wrote_generated) {
       lsfg.mark_generated_shown();
     } else {
-      device_ctx->CopyResource(d3d_img->capture_texture.get(), lsfg.passthrough_texture());
       lsfg.mark_passthrough_shown();
+    }
+    if (!lsfg.copy_selected_to_capture(d3d_img->capture_texture.get(), wrote_generated)) {
+      commit_staged_capture();
+      return capture_e::error;
     }
     d3d_img->blank = false;
 

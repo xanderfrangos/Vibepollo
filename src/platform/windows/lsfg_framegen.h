@@ -75,7 +75,9 @@ namespace platf::dxgi {
 
     /**
      * @brief Create the interpolator and build the LSFG pipeline.
-     * @param device Capture D3D11 device.
+     * @param device Capture D3D11 device. LSFG creates a separate device on the
+     * same adapter when possible, so its GPU scheduler priority is independent
+     * of capture and encoder submissions.
      * @param ctx Immediate context of @p device (capture thread only).
      * @param width Capture width in pixels.
      * @param height Capture height in pixels.
@@ -95,8 +97,9 @@ namespace platf::dxgi {
      * @brief Queue a copy of the freshly captured frame into the internal latest-frame texture.
      * Safe to call while the producer's keyed mutex is held: this only issues CopyResource.
      * @param src Captured texture (same device, same size/format as configured).
+     * @return false if the cross-device handoff could not be queued.
      */
-    void stage_capture(ID3D11Texture2D *src);
+    bool stage_capture(ID3D11Texture2D *src);
 
     /**
      * @brief On new content, rotate sources and run the optical-flow pre-pass.
@@ -129,12 +132,18 @@ namespace platf::dxgi {
     /**
      * @brief Run the generation tail at @p phase and blit the result into @p rtv.
      * @param phase Interpolation phase in (0,1).
-     * @param rtv Render target view of the destination texture.
+     * @param rtv Render target view of the destination texture when sharing the capture device.
      * @param out_width Destination width in pixels.
      * @param out_height Destination height in pixels.
      * @return true on success.
      */
     bool render_generated(float phase, ID3D11RenderTargetView *rtv, std::uint32_t out_width, std::uint32_t out_height);
+
+    /**
+     * @brief Copy the selected generated or pass-through frame into a capture-device texture.
+     * Handles the keyed-mutex handoff when LSFG owns a dedicated D3D11 device.
+     */
+    bool copy_selected_to_capture(ID3D11Texture2D *dst, bool generated);
 
     /**
      * @brief Return one completed GPU duration for a generated frame, without
