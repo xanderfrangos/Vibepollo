@@ -608,6 +608,10 @@ export const useConfigStore = defineStore('config', () => {
       'realtime_stats_show_session_history',
       'rtx_hdr',
       'rtx_hdr_force_sdr',
+      'lsfg_capture_framegen',
+      'lsfg_auto_flow_scale',
+      'lsfg_performance_mode',
+      'lsfg_adaptive_quality',
     ];
     const allBoolKeys = playniteBoolKeys.concat(otherBoolKeys);
     const toBool = (v: any): boolean | null => {
