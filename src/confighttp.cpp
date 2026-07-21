@@ -431,6 +431,16 @@ namespace confighttp {
           continue;
         }
 
+        if (key.rfind("lsfg_", 0) == 0) {
+          // LSFG settings hot-apply mid-stream: display_wgc.cpp diffs
+          // config::video.lsfg against the interpolator's current options every
+          // capture tick and rebuilds/updates it in place, requesting a capture
+          // reinit only for lsfg_capture_framegen itself (needed because
+          // pacing_allow_above_refresh feeds a value display_base_t::capture()
+          // computes once at the top of its long-running loop).
+          continue;
+        }
+
         if (key == "session_history_enabled") {
           return false;
         }

@@ -3558,6 +3558,7 @@ namespace video {
         case platf::capture_e::ok:
         case platf::capture_e::timeout:
         case platf::capture_e::interrupted:
+        case platf::capture_e::no_new_content:
           return ec != platf::capture_e::ok ? ec : status;
       }
     }
