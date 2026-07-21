@@ -227,6 +227,8 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/windows/frame_limiter_nvcp.h"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/frame_limiter_nvcp.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/lossless_scaling_paths.cpp"
+        "${CMAKE_SOURCE_DIR}/src/platform/windows/lsfg_framegen.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/windows/lsfg_framegen.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/image_convert.h"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/image_convert.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/windows/rtss_integration.h"

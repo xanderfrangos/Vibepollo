@@ -171,6 +171,13 @@ const defaultGroups = [
       fallback_mode: '1920x1080x60',
       lossless_scaling_path: '',
       lossless_scaling_legacy_auto_detect: false,
+      lsfg_capture_framegen: false,
+      lsfg_flow_scale: 100,
+      lsfg_auto_flow_scale: true,
+      lsfg_max_multiplier: 4,
+      lsfg_performance_mode: false,
+      lsfg_adaptive_quality: false,
+      lsfg_pacing_grace_ms: 0,
     },
   },
   {
@@ -615,6 +622,10 @@ export const useConfigStore = defineStore('config', () => {
       'realtime_stats_show_session_history',
       'rtx_hdr',
       'rtx_hdr_force_sdr',
+      'lsfg_capture_framegen',
+      'lsfg_auto_flow_scale',
+      'lsfg_performance_mode',
+      'lsfg_adaptive_quality',
     ];
     const allBoolKeys = playniteBoolKeys.concat(otherBoolKeys);
     const toBool = (v: any): boolean | null => {
